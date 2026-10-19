@@ -602,6 +602,71 @@ public sealed class SqliteScanRepository : IScanRepository
         }
     }
 
+    public async Task InsertAiReportAsync(AiReportRecord report, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO AiReports (ScanRunId, ModelName, PromptVersion, Status, GeneratedAtUtc, ReportPath, ErrorMessage)
+                VALUES (@ScanRunId, @ModelName, @PromptVersion, @Status, @GeneratedAtUtc, @ReportPath, @ErrorMessage);
+                SELECT last_insert_rowid();
+            ";
+            cmd.Parameters.AddWithValue("@ScanRunId", report.ScanRunId.ToString());
+            cmd.Parameters.AddWithValue("@ModelName", report.ModelName);
+            cmd.Parameters.AddWithValue("@PromptVersion", report.PromptVersion);
+            cmd.Parameters.AddWithValue("@Status", report.Status.ToString());
+            cmd.Parameters.AddWithValue("@GeneratedAtUtc", report.GeneratedAtUtc.ToString("o"));
+            cmd.Parameters.AddWithValue("@ReportPath", (object?)report.ReportPath ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@ErrorMessage", (object?)report.ErrorMessage ?? DBNull.Value);
+
+            var id = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            report.Id = Convert.ToInt64(id);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<AiReportRecord>> GetAiReportsAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default)
+    {
+        var reports = new List<AiReportRecord>();
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+
+        if (scanRunId.HasValue)
+        {
+            cmd.CommandText = "SELECT * FROM AiReports WHERE ScanRunId = @ScanRunId ORDER BY GeneratedAtUtc DESC;";
+            cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.Value.ToString());
+        }
+        else
+        {
+            cmd.CommandText = "SELECT * FROM AiReports ORDER BY GeneratedAtUtc DESC;";
+        }
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            reports.Add(new AiReportRecord
+            {
+                Id = reader.GetInt64(reader.GetOrdinal("Id")),
+                ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
+                ModelName = reader.GetString(reader.GetOrdinal("ModelName")),
+                PromptVersion = reader.GetString(reader.GetOrdinal("PromptVersion")),
+                Status = Enum.Parse<AiReportState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true),
+                GeneratedAtUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("GeneratedAtUtc"))),
+                ReportPath = reader.IsDBNull(reader.GetOrdinal("ReportPath")) ? null : reader.GetString(reader.GetOrdinal("ReportPath")),
+                ErrorMessage = reader.IsDBNull(reader.GetOrdinal("ErrorMessage")) ? null : reader.GetString(reader.GetOrdinal("ErrorMessage"))
+            });
+        }
+
+        return reports;
+    }
+
     private static FileRecord MapFileRecord(SqliteDataReader reader)
     {
         return new FileRecord

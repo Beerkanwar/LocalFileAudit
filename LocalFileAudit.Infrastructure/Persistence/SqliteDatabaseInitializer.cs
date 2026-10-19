@@ -108,6 +108,31 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
                 FOREIGN KEY (ScanRunId) REFERENCES ScanRuns(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS AiReports (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ScanRunId TEXT NOT NULL,
+                ModelName TEXT NOT NULL,
+                PromptVersion TEXT NOT NULL,
+                Status TEXT NOT NULL,
+                GeneratedAtUtc TEXT NOT NULL,
+                ReportPath TEXT,
+                ErrorMessage TEXT,
+                FOREIGN KEY (ScanRunId) REFERENCES ScanRuns(Id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS AnalysisResults (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ScanRunId TEXT NOT NULL,
+                FileId INTEGER,
+                Category TEXT NOT NULL,
+                RuleId TEXT NOT NULL,
+                Priority INTEGER NOT NULL,
+                Confidence REAL NOT NULL,
+                Explanation TEXT NOT NULL,
+                AnalysisVersion TEXT NOT NULL,
+                FOREIGN KEY (ScanRunId) REFERENCES ScanRuns(Id) ON DELETE CASCADE
+            );
+
             -- Indexes for high performance querying
             CREATE INDEX IF NOT EXISTS idx_files_scan_path ON Files(ScanRunId, FullPath);
             CREATE INDEX IF NOT EXISTS idx_files_scan_parent ON Files(ScanRunId, ParentPath);
@@ -116,6 +141,8 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             CREATE INDEX IF NOT EXISTS idx_dirs_scan_path ON Directories(ScanRunId, Path);
             CREATE INDEX IF NOT EXISTS idx_dirs_scan_status ON Directories(ScanRunId, Status);
             CREATE INDEX IF NOT EXISTS idx_errors_scan ON ScanErrors(ScanRunId);
+            CREATE INDEX IF NOT EXISTS idx_aireports_scan ON AiReports(ScanRunId);
+            CREATE INDEX IF NOT EXISTS idx_analysis_scan ON AnalysisResults(ScanRunId);
         ";
 
         await using var cmd = connection.CreateCommand();

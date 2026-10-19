@@ -37,6 +37,9 @@ public interface IScanRepository
     Task<PagedResult<FileRecord>> QueryFilesAsync(FileInventoryQuery query, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<string>> GetDiscoveredExtensionsAsync(Guid? scanRunId, CancellationToken cancellationToken = default);
     Task BackupDatabaseAsync(string destinationPath, CancellationToken cancellationToken = default);
+
+    Task InsertAiReportAsync(AiReportRecord report, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AiReportRecord>> GetAiReportsAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
