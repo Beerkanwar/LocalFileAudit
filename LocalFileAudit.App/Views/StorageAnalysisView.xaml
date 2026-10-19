@@ -6,25 +6,182 @@
              xmlns:vm="clr-namespace:LocalFileAudit.App.ViewModels"
              d:DataContext="{d:DesignInstance Type=vm:StorageAnalysisViewModel}"
              mc:Ignorable="d" 
-             d:DesignHeight="600" d:DesignWidth="900">
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+             d:DesignHeight="850" d:DesignWidth="1000">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24">
 
-        <TextBlock Grid.Row="0" Text="Storage Analysis" FontSize="26" FontWeight="Bold" Margin="0,0,0,6" />
-        <TextBlock Grid.Row="1" Text="Examine file distributions by size, extension, age, and deterministic candidate classification."
-                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="14" Margin="0,0,0,24" />
+            <!-- Top Header & Action Row -->
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Storage Analysis &amp; Decision Support" FontSize="26" FontWeight="Bold" Margin="0,0,0,6" />
+                    <TextBlock Text="Deterministic file type distributions, large file rankings, and explainable review candidates."
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="14" />
+                </StackPanel>
 
-        <Border Grid.Row="2" Style="{StaticResource CardBorderStyle}" VerticalAlignment="Top">
-            <StackPanel>
-                <TextBlock Text="Deterministic Analysis Rules" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,16" />
-                <TextBlock Text="Phase 3 will introduce folder size rollups, file-type groupings, and candidate categorization (KeepOnLaptop, ArchiveCandidate, Investigate, CleanupCandidate)."
-                           Foreground="{StaticResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap" />
-            </StackPanel>
-        </Border>
-    </Grid>
+                <!-- Action Button: Export Reports -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource PrimaryButtonStyle}" Content="📄  Export Audit Reports"
+                            Command="{Binding ExportReportsCommand}" IsEnabled="{Binding IsGeneratingReports, Converter={x:Null}}" Margin="0,0,10,0" />
+                    <Button Style="{StaticResource SecondaryButtonStyle}" Content="📂 Open Folder"
+                            Command="{Binding OpenReportDirectoryCommand}" IsEnabled="{Binding LastExportedReportPath, Converter={x:Null}}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Status Banner -->
+            <Border Background="#1E2430" BorderBrush="{StaticResource AccentPrimaryBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,20">
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#E2E8F0" FontSize="13" />
+            </Border>
+
+            <!-- KPI Cards Grid -->
+            <UniformGrid Columns="4" Margin="0,0,0,24">
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,6,0">
+                    <StackPanel>
+                        <TextBlock Text="TOTAL INVENTORIED" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding TotalStorageText}" FontSize="22" FontWeight="Bold" Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding TotalFilesText}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardBorderStyle}" Margin="6,0,6,0">
+                    <StackPanel>
+                        <TextBlock Text="CANDIDATES FOR REVIEW" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding CandidatesCountText}" FontSize="22" FontWeight="Bold" Margin="0,6,0,0" Foreground="{StaticResource WarningBrush}" />
+                        <TextBlock Text="Explainable rules" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardBorderStyle}" Margin="6,0,6,0">
+                    <StackPanel>
+                        <TextBlock Text="TOP STORAGE EXTENSION" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding TopExtensionText}" FontSize="22" FontWeight="Bold" Margin="0,6,0,0" Foreground="{StaticResource AccentHoverBrush}" />
+                        <TextBlock Text="By total bytes" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource CardBorderStyle}" Margin="6,0,0,0">
+                    <StackPanel>
+                        <TextBlock Text="ANALYSIS MODE" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="100% Deterministic" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" Foreground="{StaticResource SafeBrush}" />
+                        <TextBlock Text="Local • Offline • Read-Only" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0" />
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+
+            <!-- Section 1: File Type Breakdown -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,24">
+                <StackPanel>
+                    <TextBlock Text="Storage Distribution by File Extension" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
+
+                    <!-- Headers -->
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="EXTENSION" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Grid.Column="1" Text="FILE COUNT" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Grid.Column="2" Text="TOTAL SIZE" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Grid.Column="3" Text="% OF TOTAL STORAGE" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding TopExtensions}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,8" Margin="0,3">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{Binding Extension}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource AccentHoverBrush}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding FileCount, StringFormat='{}{0:N0}'}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding TotalLogicalSizeBytes, StringFormat='{}{0:N0} B'}" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
+                                        <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <ProgressBar Value="{Binding PercentageOfTotalSize, Mode=OneWay}" Maximum="100" Width="140" Height="8" Margin="0,0,10,0" Foreground="{StaticResource AccentPrimaryBrush}" Background="#1E2026" BorderThickness="0" />
+                                            <TextBlock Text="{Binding PercentageOfTotalSize, StringFormat='{}{0:F1}%'}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Section 2: Review Candidates -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,24">
+                <StackPanel>
+                    <TextBlock Text="Candidates for Review (Decision Support)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6" />
+                    <TextBlock Text="Notice: The application never mutates or deletes files. Review candidates indicate items that warrant manual verification."
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,14" />
+
+                    <ItemsControl ItemsSource="{Binding ReviewCandidates}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="0,4">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="160" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="120" />
+                                            </Grid.ColumnDefinitions>
+                                            <Border Background="#2C2415" BorderBrush="{StaticResource WarningBrush}" BorderThickness="1" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
+                                                <TextBlock Text="{Binding Category}" FontSize="11" FontWeight="Bold" Foreground="#FCD34D" />
+                                            </Border>
+                                            <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" Margin="10,0" />
+                                            <TextBlock Grid.Column="2" Text="{Binding SizeBytes, StringFormat='{}{0:N0} B'}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" Foreground="{StaticResource TextPrimaryBrush}" />
+                                        </Grid>
+                                        <StackPanel Grid.Row="1" Margin="0,6,0,0">
+                                            <TextBlock Text="{Binding Explanation}" FontSize="12" Foreground="#94A3B8" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding FullPath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <!-- Section 3: Largest Individual Files -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <TextBlock Text="Largest Files" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
+
+                    <ItemsControl ItemsSource="{Binding LargestFiles}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,8" Margin="0,3">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="140" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ParentPath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding Extension}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding SizeBytes, StringFormat='{}{0:N0} B'}" FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

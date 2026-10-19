@@ -1,8 +1,10 @@
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Validation;
+using LocalFileAudit.Infrastructure.Analysis;
 using LocalFileAudit.Infrastructure.Configuration;
 using LocalFileAudit.Infrastructure.Environment;
 using LocalFileAudit.Infrastructure.Persistence;
+using LocalFileAudit.Infrastructure.Reporting;
 using LocalFileAudit.Infrastructure.Scanning;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -20,6 +22,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDatabaseInitializer, SqliteDatabaseInitializer>();
         services.AddSingleton<IScanRepository, SqliteScanRepository>();
         services.AddSingleton<IScanEngine, FilesystemScanner>();
+
+        // Storage Analysis & Reporting
+        services.AddSingleton<IStorageAnalysisEngine, StorageAnalysisEngine>();
+        services.AddSingleton<IReportGenerator, ReportGenerator>();
 
         return services;
     }

@@ -1,0 +1,177 @@
+using LocalFileAudit.Core.Configuration;
+using LocalFileAudit.Core.Models;
+
+namespace LocalFileAudit.Core.Analysis;
+
+/// <summary>
+/// Deterministic, explainable rule evaluator.
+/// Classifies files into decision-support categories without automatic mutation.
+/// </summary>
+public static class CandidateRuleEvaluator
+{
+    private static readonly HashSet<string> MediaAndArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".vhd", ".vhdx",
+        ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v"
+    };
+
+    private static readonly HashSet<string> TempAndBackupExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".tmp", ".bak", ".old", ".dmp", ".log", ".chk", ".swp", ".~tmp", ".crdownload"
+    };
+
+    private static readonly HashSet<string> InstallerExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".msi", ".exe", ".pkg"
+    };
+
+    public static CandidateClassification Classify(FileRecord file, AppConfiguration config)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        ArgumentNullException.ThrowIfNull(config);
+
+        var path = file.FullPath;
+        var ext = file.Extension;
+        var now = DateTime.UtcNow;
+
+        // 1. Protected System Directory Rule
+        if (IsProtectedPath(path))
+        {
+            return new CandidateClassification
+            {
+                FileRecordId = file.Id,
+                ScanRunId = file.ScanRunId,
+                FullPath = file.FullPath,
+                FileName = file.FileName,
+                Extension = file.Extension,
+                SizeBytes = file.SizeBytes,
+                LastWriteTimeUtc = file.LastWriteTimeUtc,
+                Category = CandidateCategory.ProtectedSystem,
+                RuleId = "RULE_PROTECTED_SYSTEM",
+                Priority = 3,
+                Confidence = 1.0,
+                Explanation = "Operating system or application system file. Protected location."
+            };
+        }
+
+        // 2. Large File Threshold Rule
+        if (file.SizeBytes >= config.Analysis.LargeFileThresholdBytes)
+        {
+            var mb = file.SizeBytes / (1024 * 1024);
+            var thresholdMb = config.Analysis.LargeFileThresholdBytes / (1024 * 1024);
+            return new CandidateClassification
+            {
+                FileRecordId = file.Id,
+                ScanRunId = file.ScanRunId,
+                FullPath = file.FullPath,
+                FileName = file.FileName,
+                Extension = file.Extension,
+                SizeBytes = file.SizeBytes,
+                LastWriteTimeUtc = file.LastWriteTimeUtc,
+                Category = CandidateCategory.Investigate,
+                RuleId = "RULE_LARGE_FILE",
+                Priority = 1,
+                Confidence = 0.95,
+                Explanation = $"Large file ({mb:N0} MB) exceeding threshold ({thresholdMb:N0} MB). Review for retention or cold archive."
+            };
+        }
+
+        // 3. Old Media or Archive File Rule
+        if (MediaAndArchiveExtensions.Contains(ext) && file.LastWriteTimeUtc.HasValue)
+        {
+            var ageDays = (now - file.LastWriteTimeUtc.Value).TotalDays;
+            if (ageDays >= config.Analysis.OldFileAgeDays)
+            {
+                return new CandidateClassification
+                {
+                    FileRecordId = file.Id,
+                    ScanRunId = file.ScanRunId,
+                    FullPath = file.FullPath,
+                    FileName = file.FileName,
+                    Extension = file.Extension,
+                    SizeBytes = file.SizeBytes,
+                    LastWriteTimeUtc = file.LastWriteTimeUtc,
+                    Category = CandidateCategory.ArchiveCandidate,
+                    RuleId = "RULE_OLD_ARCHIVE_MEDIA",
+                    Priority = 1,
+                    Confidence = 0.90,
+                    Explanation = $"Archive/media file inactive for {(int)ageDays:N0} days (threshold: {config.Analysis.OldFileAgeDays} days). Candidate for external USB/cold storage."
+                };
+            }
+        }
+
+        // 4. Inactive Temporary or Backup Artifact Rule
+        if (TempAndBackupExtensions.Contains(ext) && file.LastWriteTimeUtc.HasValue)
+        {
+            var ageDays = (now - file.LastWriteTimeUtc.Value).TotalDays;
+            if (ageDays >= 180)
+            {
+                return new CandidateClassification
+                {
+                    FileRecordId = file.Id,
+                    ScanRunId = file.ScanRunId,
+                    FullPath = file.FullPath,
+                    FileName = file.FileName,
+                    Extension = file.Extension,
+                    SizeBytes = file.SizeBytes,
+                    LastWriteTimeUtc = file.LastWriteTimeUtc,
+                    Category = CandidateCategory.CleanupCandidate,
+                    RuleId = "RULE_INACTIVE_BACKUP_TEMP",
+                    Priority = 2,
+                    Confidence = 0.85,
+                    Explanation = $"Backup or temporary extension inactive for {(int)ageDays:N0} days. Worth investigating whether source tool still needs it. Never delete automatically."
+                };
+            }
+        }
+
+        // 5. Inactive Installer in Downloads Rule
+        if (InstallerExtensions.Contains(ext) && path.Contains(@"\Downloads\", StringComparison.OrdinalIgnoreCase) && file.LastWriteTimeUtc.HasValue)
+        {
+            var ageDays = (now - file.LastWriteTimeUtc.Value).TotalDays;
+            if (ageDays >= 90)
+            {
+                return new CandidateClassification
+                {
+                    FileRecordId = file.Id,
+                    ScanRunId = file.ScanRunId,
+                    FullPath = file.FullPath,
+                    FileName = file.FileName,
+                    Extension = file.Extension,
+                    SizeBytes = file.SizeBytes,
+                    LastWriteTimeUtc = file.LastWriteTimeUtc,
+                    Category = CandidateCategory.CleanupCandidate,
+                    RuleId = "RULE_OLD_DOWNLOADED_INSTALLER",
+                    Priority = 2,
+                    Confidence = 0.85,
+                    Explanation = $"Installer in Downloads folder inactive for {(int)ageDays:N0} days. Review whether installer can be archived or cleaned."
+                };
+            }
+        }
+
+        // Default classification: Keep On Laptop
+        return new CandidateClassification
+        {
+            FileRecordId = file.Id,
+            ScanRunId = file.ScanRunId,
+            FullPath = file.FullPath,
+            FileName = file.FileName,
+            Extension = file.Extension,
+            SizeBytes = file.SizeBytes,
+            LastWriteTimeUtc = file.LastWriteTimeUtc,
+            Category = CandidateCategory.KeepOnLaptop,
+            RuleId = "RULE_DEFAULT_KEEP",
+            Priority = 3,
+            Confidence = 0.80,
+            Explanation = "Normal active file within standard age and size thresholds."
+        };
+    }
+
+    private static bool IsProtectedPath(string path)
+    {
+        return path.Contains(@"\Windows\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\Program Files\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\Program Files (x86)\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\System Volume Information\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\$Recycle.Bin\", StringComparison.OrdinalIgnoreCase);
+    }
+}
