@@ -6,25 +6,167 @@
              xmlns:vm="clr-namespace:LocalFileAudit.App.ViewModels"
              d:DataContext="{d:DesignInstance Type=vm:ScansViewModel}"
              mc:Ignorable="d" 
-             d:DesignHeight="600" d:DesignWidth="900">
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
+             d:DesignHeight="800" d:DesignWidth="950">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="24">
 
-        <TextBlock Grid.Row="0" Text="Scan Management" FontSize="26" FontWeight="Bold" Margin="0,0,0,6" />
-        <TextBlock Grid.Row="1" Text="Configure scan targets, monitor live progress, and manage historical inventory runs."
-                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="14" Margin="0,0,0,24" />
+            <!-- Title Header -->
+            <TextBlock Text="Scan Center" FontSize="26" FontWeight="Bold" Margin="0,0,0,6" />
+            <TextBlock Text="Configure drive scope, monitor live scan progress, and manage historical inventory runs."
+                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="14" Margin="0,0,0,20" />
 
-        <Border Grid.Row="2" Style="{StaticResource CardBorderStyle}" VerticalAlignment="Top">
-            <StackPanel>
-                <TextBlock Text="Scan Engine Status: Idle" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,16" />
-                <TextBlock Text="Phase 2 will implement directory traversal, bounded persistence batches, crash-safe transaction logging, pause, resume, and cancellation."
-                           Foreground="{StaticResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap" />
-            </StackPanel>
-        </Border>
-    </Grid>
+            <!-- Incomplete Scan Recovery Prompt (Visible only if an interrupted scan exists) -->
+            <Border Visibility="{Binding IncompleteScan, Converter={x:Null}}"
+                    Background="#2A1B0E" BorderBrush="{StaticResource WarningBrush}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Incomplete Scan Detected" FontWeight="Bold" FontSize="15" Foreground="#FCD34D" />
+                        <TextBlock Text="A previous scan was interrupted or terminated before completing. Previously committed database batches remain safely preserved in SQLite."
+                                   Foreground="#FDE68A" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="Discard Records" Command="{Binding DiscardIncompleteScanCommand}" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="Resume Scan" Command="{Binding ResumeIncompleteScanCommand}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Target Scope Selection Card -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="Scan Scope (Internal Drives &amp; Directories)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
+
+                    <!-- Drive Checkboxes -->
+                    <ItemsControl ItemsSource="{Binding AvailableDrives}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          Content="{Binding Description}"
+                                          Margin="0,4" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Custom Directory Input -->
+                    <Grid Margin="0,12,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Or Specific Folder:" VerticalAlignment="Center" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" />
+                        <TextBox Grid.Column="1" Text="{Binding CustomDirectoryPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+
+                    <!-- Start Button Row -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="▶  Start File Inventory Scan" Command="{Binding StartScanCommand}" IsEnabled="{Binding IsScanning, Converter={x:Null}}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Live Progress Card -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,20">
+                <StackPanel>
+                    <Grid Margin="0,0,0,12">
+                        <TextBlock Text="Live Scan Engine Status" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding ScanStatusText}" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="13" Foreground="{StaticResource AccentHoverBrush}" FontWeight="SemiBold" />
+                    </Grid>
+
+                    <!-- Metrics Grid -->
+                    <UniformGrid Columns="4" Margin="0,8,0,16">
+                        <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="0,0,6,0">
+                            <StackPanel>
+                                <TextBlock Text="FILES DISCOVERED" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                                <TextBlock Text="{Binding FilesDiscovered, StringFormat='{}{0:N0}'}" FontSize="20" FontWeight="Bold" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="6,0,6,0">
+                            <StackPanel>
+                                <TextBlock Text="DIRECTORIES COMPLETED" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                                <TextBlock Text="{Binding DirectoriesCompleted, StringFormat='{}{0:N0}'}" FontSize="20" FontWeight="Bold" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="6,0,6,0">
+                            <StackPanel>
+                                <TextBlock Text="SCAN RATE" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                                <TextBlock Text="{Binding FilesPerSecond, StringFormat='{}{0:N0} files/sec'}" FontSize="20" FontWeight="Bold" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="6,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="ELAPSED TIME" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
+                                <TextBlock Text="{Binding ElapsedTime, StringFormat='{}{0:hh\\:mm\\:ss}'}" FontSize="20" FontWeight="Bold" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+
+                    <!-- Current Directory Path -->
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Current Folder:" Foreground="{StaticResource TextMutedBrush}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentDirectory}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextTrimming="CharacterEllipsis" />
+                    </Grid>
+
+                    <!-- Control Buttons (Pause, Resume, Cancel) -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="⏸  Pause" Command="{Binding PauseScanCommand}" Margin="0,0,10,0" IsEnabled="{Binding IsScanning}" />
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="▶  Resume" Command="{Binding ResumeScanCommand}" Margin="0,0,10,0" IsEnabled="{Binding IsPaused}" />
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="⏹  Cancel Scan" Command="{Binding CancelScanCommand}" IsEnabled="{Binding IsScanning}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Historical Scans Table -->
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel>
+                    <Grid Margin="0,0,0,12">
+                        <TextBlock Text="Historical Scan Runs" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="↻ Refresh" Command="{Binding RefreshScansCommand}" HorizontalAlignment="Right" Height="30" Padding="12,0" />
+                    </Grid>
+
+                    <ItemsControl ItemsSource="{Binding RecentScans}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="0,4">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="180" />
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="140" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding StartTimeUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" FontWeight="SemiBold" FontSize="13" />
+                                            <TextBlock Text="{Binding ApplicationVersion, StringFormat='{}v{0}'}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" />
+                                        </StackPanel>
+
+                                        <Border Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Center" Background="#1E293B" CornerRadius="4" Padding="8,2">
+                                            <TextBlock Text="{Binding Status}" FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource AccentHoverBrush}" />
+                                        </Border>
+
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding SelectedDrives, StringFormat='{}Roots: {0}'}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding FilesDiscovered, StringFormat='{}{0:N0} files'}" FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Right" />
+                                            <TextBlock Text="{Binding DirectoriesCompleted, StringFormat='{}{0:N0} dirs'}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" HorizontalAlignment="Right" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
 </UserControl>

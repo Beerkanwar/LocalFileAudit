@@ -59,6 +59,10 @@ public partial class App : Application
         var configService = _host.Services.GetRequiredService<IConfigurationService>();
         await configService.LoadAsync();
 
+        // Ensure SQLite database schema and WAL mode are initialized
+        var dbInit = _host.Services.GetRequiredService<IDatabaseInitializer>();
+        await dbInit.InitializeAsync();
+
         // Launch main window
         var mainWindow = _host.Services.GetRequiredService<MainWindow>();
         mainWindow.Show();
