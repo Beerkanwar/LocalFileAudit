@@ -137,10 +137,11 @@
                                 <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="0,4">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="180" />
-                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="150" />
+                                            <ColumnDefinition Width="100" />
                                             <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="220" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
                                             <TextBlock Text="{Binding StartTimeUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" FontWeight="SemiBold" FontSize="13" />
@@ -151,13 +152,26 @@
                                             <TextBlock Text="{Binding Status}" FontWeight="SemiBold" FontSize="11" Foreground="{StaticResource AccentHoverBrush}" />
                                         </Border>
 
-                                        <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Margin="10,0">
                                             <TextBlock Text="{Binding SelectedDrives, StringFormat='{}Roots: {0}'}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding ErrorCount, StringFormat='{}Errors: {0}'}" FontSize="11" Foreground="{StaticResource WarningBrush}" Margin="0,2,0,0" />
                                         </StackPanel>
 
-                                        <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        <StackPanel Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,12,0">
                                             <TextBlock Text="{Binding FilesDiscovered, StringFormat='{}{0:N0} files'}" FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Right" />
                                             <TextBlock Text="{Binding DirectoriesCompleted, StringFormat='{}{0:N0} dirs'}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" HorizontalAlignment="Right" />
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="4" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <Button Style="{StaticResource SecondaryButtonStyle}" Content="📋 Files" Height="26" Padding="8,0" Margin="0,0,4,0" FontSize="11"
+                                                    Command="{Binding DataContext.ViewInventoryForScanCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding Id}" ToolTip="Search and view files for this scan run" />
+                                            <Button Style="{StaticResource SecondaryButtonStyle}" Content="📈 Analysis" Height="26" Padding="8,0" Margin="0,0,4,0" FontSize="11"
+                                                    Command="{Binding DataContext.ViewAnalysisForScanCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding Id}" ToolTip="Open detailed storage analysis" />
+                                            <Button Style="{StaticResource SecondaryButtonStyle}" Content="✕" Height="26" Padding="8,0" FontSize="11" Foreground="{StaticResource ErrorBrush}"
+                                                    Command="{Binding DataContext.DeleteScanHistoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding Id}" ToolTip="Delete this scan history record from database (source files untouched)" />
                                         </StackPanel>
                                     </Grid>
                                 </Border>

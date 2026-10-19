@@ -15,7 +15,7 @@ public sealed partial class MainViewModel : ObservableObject
     private string _statusMessage = "Ready - Safe Read-Only Mode Active";
 
     [ObservableProperty]
-    private string _appVersion = "1.0.0 (Phase 1 Foundation)";
+    private string _appVersion = "1.0.0 (Desktop Dashboard & Inventory)";
 
     [ObservableProperty]
     private bool _isSafeModeActive = true;
@@ -48,10 +48,23 @@ public sealed partial class MainViewModel : ObservableObject
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         _currentViewModel = Dashboard;
+
+        // Wire inter-viewModel navigation callbacks
+        Dashboard.OnNavigateRequested = view => Navigate(view);
+        Scans.OnNavigateToInventoryWithScan = async scanId =>
+        {
+            await Inventory.LoadInitialDataAsync(scanId);
+            Navigate("Inventory");
+        };
+        Scans.OnNavigateToAnalysisWithScan = async scanId =>
+        {
+            await StorageAnalysis.LoadAnalysisAsync(scanId);
+            Navigate("StorageAnalysis");
+        };
     }
 
     [RelayCommand]
-    private void Navigate(string viewName)
+    public void Navigate(string viewName)
     {
         _logger.LogInformation("Navigating to view: {ViewName}", viewName);
 
@@ -66,5 +79,22 @@ public sealed partial class MainViewModel : ObservableObject
             "Settings" => Settings,
             _ => Dashboard
         };
+
+        // Proactively refresh target view state
+        switch (viewName)
+        {
+            case "Dashboard":
+                _ = Dashboard.LoadLatestMetricsAsync();
+                break;
+            case "Scans":
+                _ = Scans.RefreshScansAsync();
+                break;
+            case "Inventory":
+                _ = Inventory.ExecuteSearchAsync();
+                break;
+            case "StorageAnalysis":
+                _ = StorageAnalysis.RefreshGeneratedReportsAsync();
+                break;
+        }
     }
 }

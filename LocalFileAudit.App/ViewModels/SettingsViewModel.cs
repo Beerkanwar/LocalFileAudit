@@ -1,3 +1,4 @@
+using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using LocalFileAudit.Core.Configuration;
 using LocalFileAudit.Core.Interfaces;
@@ -9,6 +10,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
 {
     private readonly IConfigurationService _configurationService;
     private readonly IAppEnvironment _environment;
+    private readonly IScanRepository _repository;
     private readonly ILogger<SettingsViewModel> _logger;
 
     private bool _includeFixedDrives;
@@ -30,10 +32,12 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public SettingsViewModel(
         IConfigurationService configurationService,
         IAppEnvironment environment,
+        IScanRepository repository,
         ILogger<SettingsViewModel> logger)
     {
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
         _environment = environment ?? throw new ArgumentNullException(nameof(environment));
+        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         Title = "Settings";
@@ -43,6 +47,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     public string ConfigPath => _environment.ConfigFilePath;
     public string LogsPath => _environment.LogsDirectory;
     public string DatabasePath => _environment.DatabaseDirectory;
+    public string ReportsPath => _environment.ReportsDirectory;
 
     public bool IncludeFixedDrives
     {
@@ -241,5 +246,61 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
         IsStatusError = false;
         StatusMessage = "Defaults loaded. Click Save to persist.";
+    }
+
+    [RelayCommand]
+    public async Task CreateDatabaseBackupAsync()
+    {
+        try
+        {
+            var backupDir = Path.Combine(_environment.DatabaseDirectory, "backups");
+            Directory.CreateDirectory(backupDir);
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
+            var backupFile = Path.Combine(backupDir, $"localfileaudit-backup-{timestamp}.db");
+
+            StatusMessage = "Creating online SQLite backup...";
+            await _repository.BackupDatabaseAsync(backupFile);
+
+            IsStatusError = false;
+            StatusMessage = $"Database backed up successfully to: {backupFile}";
+            _logger.LogInformation("Database backed up successfully to {BackupPath}", backupFile);
+        }
+        catch (Exception ex)
+        {
+            IsStatusError = true;
+            StatusMessage = $"Backup failed: {ex.Message}";
+            _logger.LogError(ex, "Failed to create database backup");
+        }
+    }
+
+    [RelayCommand]
+    public void OpenDatabaseDirectory() => OpenFolder(_environment.DatabaseDirectory);
+
+    [RelayCommand]
+    public void OpenLogsDirectory() => OpenFolder(_environment.LogsDirectory);
+
+    [RelayCommand]
+    public void OpenReportsDirectory() => OpenFolder(_environment.ReportsDirectory);
+
+    [RelayCommand]
+    public void OpenConfigDirectory() => OpenFolder(_environment.ApplicationDataDirectory);
+
+    private void OpenFolder(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open directory {Path}", path);
+        }
     }
 }

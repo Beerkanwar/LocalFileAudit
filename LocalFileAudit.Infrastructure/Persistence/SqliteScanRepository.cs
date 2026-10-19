@@ -431,6 +431,199 @@ public sealed class SqliteScanRepository : IScanRepository
         return errors;
     }
 
+    public async Task<PagedResult<FileRecord>> QueryFilesAsync(FileInventoryQuery query, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        var whereConditions = new List<string>();
+        var parameters = new List<SqliteParameter>();
+
+        if (query.ScanRunId.HasValue)
+        {
+            whereConditions.Add("ScanRunId = @ScanRunId");
+            parameters.Add(new SqliteParameter("@ScanRunId", query.ScanRunId.Value.ToString()));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.SearchText))
+        {
+            whereConditions.Add("(FileName LIKE @SearchText OR FullPath LIKE @SearchText)");
+            parameters.Add(new SqliteParameter("@SearchText", $"%{query.SearchText.Trim()}%"));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.Extension))
+        {
+            var ext = query.Extension.Trim();
+            if (!ext.StartsWith('.')) ext = "." + ext;
+            whereConditions.Add("Extension = @Extension COLLATE NOCASE");
+            parameters.Add(new SqliteParameter("@Extension", ext));
+        }
+
+        if (!string.IsNullOrWhiteSpace(query.DriveOrPrefix))
+        {
+            whereConditions.Add("FullPath LIKE @Prefix");
+            parameters.Add(new SqliteParameter("@Prefix", $"{query.DriveOrPrefix.Trim()}%"));
+        }
+
+        if (query.MinSizeBytes.HasValue)
+        {
+            whereConditions.Add("SizeBytes >= @MinSizeBytes");
+            parameters.Add(new SqliteParameter("@MinSizeBytes", query.MinSizeBytes.Value));
+        }
+
+        if (query.MaxSizeBytes.HasValue)
+        {
+            whereConditions.Add("SizeBytes <= @MaxSizeBytes");
+            parameters.Add(new SqliteParameter("@MaxSizeBytes", query.MaxSizeBytes.Value));
+        }
+
+        if (query.MinModifiedUtc.HasValue)
+        {
+            whereConditions.Add("LastWriteTimeUtc >= @MinModifiedUtc");
+            parameters.Add(new SqliteParameter("@MinModifiedUtc", query.MinModifiedUtc.Value.ToString("o")));
+        }
+
+        if (query.MaxModifiedUtc.HasValue)
+        {
+            whereConditions.Add("LastWriteTimeUtc <= @MaxModifiedUtc");
+            parameters.Add(new SqliteParameter("@MaxModifiedUtc", query.MaxModifiedUtc.Value.ToString("o")));
+        }
+
+        var whereClause = whereConditions.Count > 0 ? "WHERE " + string.Join(" AND ", whereConditions) : "";
+
+        long totalCount;
+        await using (var countCmd = connection.CreateCommand())
+        {
+            countCmd.CommandText = $"SELECT COUNT(1) FROM Files {whereClause};";
+            foreach (var p in parameters)
+            {
+                countCmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
+            }
+            var countResult = await countCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            totalCount = Convert.ToInt64(countResult);
+        }
+
+        var sortColumn = query.SortBy?.ToLowerInvariant() switch
+        {
+            "filename" => "FileName",
+            "extension" => "Extension",
+            "lastwritetimeutc" => "LastWriteTimeUtc",
+            "fullpath" => "FullPath",
+            _ => "SizeBytes"
+        };
+        var sortDirection = query.SortDescending ? "DESC" : "ASC";
+
+        var pageSize = Math.Clamp(query.Limit, 1, 500);
+        var offset = Math.Max(0, query.Offset);
+
+        var items = new List<FileRecord>();
+        await using (var dataCmd = connection.CreateCommand())
+        {
+            dataCmd.CommandText = $"SELECT * FROM Files {whereClause} ORDER BY {sortColumn} {sortDirection} LIMIT @Limit OFFSET @Offset;";
+            foreach (var p in parameters)
+            {
+                dataCmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
+            }
+            dataCmd.Parameters.AddWithValue("@Limit", pageSize);
+            dataCmd.Parameters.AddWithValue("@Offset", offset);
+
+            await using var reader = await dataCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                items.Add(MapFileRecord(reader));
+            }
+        }
+
+        return new PagedResult<FileRecord>
+        {
+            Items = items,
+            TotalCount = totalCount,
+            PageNumber = (offset / pageSize) + 1,
+            PageSize = pageSize
+        };
+    }
+
+    public async Task<IReadOnlyList<string>> GetDiscoveredExtensionsAsync(Guid? scanRunId, CancellationToken cancellationToken = default)
+    {
+        var extensions = new List<string>();
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+
+        if (scanRunId.HasValue)
+        {
+            cmd.CommandText = "SELECT DISTINCT Extension FROM Files WHERE ScanRunId = @ScanRunId AND Extension != '' ORDER BY Extension ASC;";
+            cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.Value.ToString());
+        }
+        else
+        {
+            cmd.CommandText = "SELECT DISTINCT Extension FROM Files WHERE Extension != '' ORDER BY Extension ASC;";
+        }
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!reader.IsDBNull(0))
+            {
+                extensions.Add(reader.GetString(0));
+            }
+        }
+
+        return extensions;
+    }
+
+    public async Task BackupDatabaseAsync(string destinationPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+        var dir = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var sourceConn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            var destConnString = new SqliteConnectionStringBuilder
+            {
+                DataSource = destinationPath,
+                Mode = SqliteOpenMode.ReadWriteCreate
+            }.ToString();
+
+            await using var destConn = new SqliteConnection(destConnString);
+            await destConn.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+            sourceConn.BackupDatabase(destConn);
+            _logger.LogInformation("Database successfully backed up online to {DestinationPath}", destinationPath);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    private static FileRecord MapFileRecord(SqliteDataReader reader)
+    {
+        return new FileRecord
+        {
+            Id = reader.GetInt64(reader.GetOrdinal("Id")),
+            ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
+            FullPath = reader.GetString(reader.GetOrdinal("FullPath")),
+            ParentPath = reader.GetString(reader.GetOrdinal("ParentPath")),
+            FileName = reader.GetString(reader.GetOrdinal("FileName")),
+            Extension = reader.GetString(reader.GetOrdinal("Extension")),
+            SizeBytes = reader.GetInt64(reader.GetOrdinal("SizeBytes")),
+            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
+            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
+            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
+            Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
+            ObservedAtUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
+            MetadataStatus = Enum.Parse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true),
+            HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
+            HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))
+        };
+    }
+
     private static ScanRun MapScanRun(SqliteDataReader reader)
     {
         return new ScanRun

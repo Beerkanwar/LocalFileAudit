@@ -20,4 +20,5 @@ public interface IStorageAnalysisEngine
 public interface IReportGenerator
 {
     Task<ReportGenerationResult> GenerateReportsAsync(Guid scanRunId, string? targetDirectory = null, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ReportFolderInfo>> GetGeneratedReportsAsync(CancellationToken cancellationToken = default);
 }

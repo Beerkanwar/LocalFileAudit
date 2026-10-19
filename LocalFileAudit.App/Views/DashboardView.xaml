@@ -6,101 +6,186 @@
              xmlns:vm="clr-namespace:LocalFileAudit.App.ViewModels"
              d:DataContext="{d:DesignInstance Type=vm:DashboardViewModel}"
              mc:Ignorable="d" 
-             d:DesignHeight="600" d:DesignWidth="900">
+             d:DesignHeight="850" d:DesignWidth="1050">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="24">
             
-            <!-- Page Title -->
-            <TextBlock Text="Dashboard" FontSize="26" FontWeight="Bold" Margin="0,0,0,6" />
-            <TextBlock Text="Storage overview, file inventory metrics, and decision-support summary."
-                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="14" Margin="0,0,0,24" />
+            <!-- Header Bar -->
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel>
+                    <TextBlock Text="Storage Dashboard" FontSize="26" FontWeight="Bold" Margin="0,0,0,4" />
+                    <TextBlock Text="Overview of local storage consumption, file inventory metrics, and decision-support highlights."
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Style="{StaticResource PrimaryButtonStyle}" Content="🔍 Start New Scan"
+                            Command="{Binding NavigateToCommand}" CommandParameter="Scans" Margin="0,0,10,0" />
+                    <Button Style="{StaticResource SecondaryButtonStyle}" Content="📋 Open Inventory"
+                            Command="{Binding NavigateToCommand}" CommandParameter="Inventory" />
+                </StackPanel>
+            </Grid>
 
             <!-- Safety Guarantee Banner -->
-            <Border Background="#16382B" BorderBrush="{StaticResource SafeBrush}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,24">
+            <Border Background="#16382B" BorderBrush="{StaticResource SafeBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,20">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <Border Background="{StaticResource SafeBrush}" CornerRadius="16" Width="32" Height="32" Margin="0,0,14,0" VerticalAlignment="Center">
-                        <TextBlock Text="✓" Foreground="#FFFFFF" FontWeight="Bold" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Border Background="{StaticResource SafeBrush}" CornerRadius="16" Width="30" Height="30" Margin="0,0,14,0" VerticalAlignment="Center">
+                        <TextBlock Text="✓" Foreground="#FFFFFF" FontWeight="Bold" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock Text="Safe Read-Only Analysis Guarantee" FontWeight="Bold" FontSize="14" Foreground="#A7F3D0" />
-                        <TextBlock Text="LocalFileAudit is an analysis and decision-support tool. It never mutates, deletes, or moves user files. All operations run strictly read-only and 100% locally."
-                                   Foreground="#D1FAE5" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,0" />
+                        <TextBlock Text="Safe Read-Only Analysis Active" FontWeight="Bold" FontSize="13" Foreground="#A7F3D0" />
+                        <TextBlock Text="All scanning, storage calculations, and report generation operate in strict read-only mode locally. Files are never modified, moved, or deleted."
+                                   Foreground="#D1FAE5" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" />
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- Quick Metrics Grid -->
-            <UniformGrid Columns="4" Margin="0,0,0,24">
+            <!-- KPI Metric Cards Grid -->
+            <UniformGrid Columns="4" Margin="0,0,0,20">
                 
                 <!-- Metric 1: Total Files -->
-                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,12,0">
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,10,0">
                     <StackPanel>
-                        <TextBlock Text="INVENTORIED FILES" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
-                        <TextBlock Text="{Binding TotalFilesDiscoveredText}" FontSize="24" FontWeight="Bold" Margin="0,8,0,0" />
-                        <TextBlock Text="Awaiting scan run" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0" />
+                        <TextBlock Text="INVENTORIED FILES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding TotalFilesDiscoveredText}" FontSize="22" FontWeight="Bold" Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding ScanStateText, StringFormat='{}Status: {0}'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
                     </StackPanel>
                 </Border>
 
                 <!-- Metric 2: Total Logical Size -->
-                <Border Style="{StaticResource CardBorderStyle}" Margin="6,0,6,0">
+                <Border Style="{StaticResource CardBorderStyle}" Margin="5,0,5,0">
                     <StackPanel>
-                        <TextBlock Text="INVENTORIED SIZE" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
-                        <TextBlock Text="{Binding TotalLogicalSizeText}" FontSize="24" FontWeight="Bold" Margin="0,8,0,0" />
-                        <TextBlock Text="Logical bytes" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0" />
+                        <TextBlock Text="INVENTORIED SIZE" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding TotalLogicalSizeText}" FontSize="22" FontWeight="Bold" Foreground="{StaticResource AccentHoverBrush}" Margin="0,6,0,0" />
+                        <TextBlock Text="Logical bytes" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
                     </StackPanel>
                 </Border>
 
-                <!-- Metric 3: Drives Scanned -->
-                <Border Style="{StaticResource CardBorderStyle}" Margin="6,0,6,0">
+                <!-- Metric 3: Scanned Roots / Drives -->
+                <Border Style="{StaticResource CardBorderStyle}" Margin="5,0,5,0">
                     <StackPanel>
-                        <TextBlock Text="DRIVES" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
-                        <TextBlock Text="{Binding DrivesCountText}" FontSize="24" FontWeight="Bold" Margin="0,8,0,0" />
-                        <TextBlock Text="Fixed internal drives" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0" />
+                        <TextBlock Text="SCAN TARGETS" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding DrivesCountText}" FontSize="22" FontWeight="Bold" Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding LastScanTimeText, StringFormat='{}Last scan: {0}'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
                     </StackPanel>
                 </Border>
 
-                <!-- Metric 4: Scanner State -->
-                <Border Style="{StaticResource CardBorderStyle}" Margin="12,0,0,0">
+                <!-- Metric 4: Review Candidates -->
+                <Border Style="{StaticResource CardBorderStyle}" Margin="10,0,0,0">
                     <StackPanel>
-                        <TextBlock Text="ENGINE STATUS" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource TextMutedBrush}" />
-                        <TextBlock Text="{Binding ScanStateText}" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,0" Foreground="{StaticResource AccentHoverBrush}" />
-                        <TextBlock Text="Ready for Phase 2" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,0" />
+                        <TextBlock Text="DECISION CANDIDATES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding ArchiveCandidatesCountText}" FontSize="20" FontWeight="Bold" Foreground="{StaticResource WarningBrush}" Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding CleanupCandidatesCountText, StringFormat='{}Cleanup: {0}'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
                     </StackPanel>
                 </Border>
 
             </UniformGrid>
 
-            <!-- Foundation Status / Info Card -->
+            <!-- Two-Column Section: File-Type Distribution & Largest Directories -->
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Left Column: File Types Distribution -->
+                <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" Margin="0,0,10,0">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <TextBlock Text="Storage by Extension (Top 5)" FontSize="15" FontWeight="SemiBold" />
+                            <Button HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}" Content="View All →"
+                                    Command="{Binding NavigateToCommand}" CommandParameter="StorageAnalysis" Height="24" Padding="8,0" FontSize="11" />
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding TopExtensions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,7" Margin="0,2">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="70" />
+                                                <ColumnDefinition Width="90" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="60" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding Extension}" FontWeight="Bold" FontSize="12" Foreground="{StaticResource AccentHoverBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding TotalLogicalSizeBytes, StringFormat='{}{0:N0} B'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                            <ProgressBar Grid.Column="2" Value="{Binding PercentageOfTotalSize, Mode=OneWay}" Maximum="100" Height="6" Margin="6,0" Foreground="{StaticResource AccentPrimaryBrush}" Background="#1A1C22" BorderThickness="0" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="3" Text="{Binding PercentageOfTotalSize, StringFormat='{}{0:F1}%'}" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Right Column: Largest Directories -->
+                <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}" Margin="10,0,0,0">
+                    <StackPanel>
+                        <Grid Margin="0,0,0,12">
+                            <TextBlock Text="Largest Folders Hotspot (Top 5)" FontSize="15" FontWeight="SemiBold" />
+                            <Button HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}" Content="Deep Analysis →"
+                                    Command="{Binding NavigateToCommand}" CommandParameter="StorageAnalysis" Height="24" Padding="8,0" FontSize="11" />
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding LargestDirectories}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,7" Margin="0,2">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="100" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding DirectoryPath}" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DirectoryPath}" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding DirectSizeBytes, StringFormat='{}{0:N0} B'}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentHoverBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- Bottom Section: Largest Files Preview -->
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel>
-                    <TextBlock Text="Phase 1 Foundation Operational" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                    <TextBlock Text="The application architecture, dependency injection container, structured configuration system, rolling local file logging with path redaction, and core validation pipeline are active."
-                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,16" />
-
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-
-                        <StackPanel Grid.Column="0" Margin="0,0,12,0">
-                            <TextBlock Text="Active Architectural Invariants:" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,6" />
-                            <TextBlock Text="• Layered separation: Core, Infrastructure, App, Tests" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,2" />
-                            <TextBlock Text="• Configuration loaded with atomic file operations" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,2" />
-                            <TextBlock Text="• Destructive file mutations permanently rejected by validator" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,2" />
-                        </StackPanel>
-
-                        <StackPanel Grid.Column="1" Margin="12,0,0,0">
-                            <TextBlock Text="Upcoming Milestones:" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,6" />
-                            <TextBlock Text="• Phase 2: SQLite crash-safe persistence and scan engine" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,2" />
-                            <TextBlock Text="• Phase 3: Deterministic storage aggregations and CSV/Markdown reports" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,2" />
-                            <TextBlock Text="• Phase 4: Interactive virtualized inventory dashboard" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,2" />
-                        </StackPanel>
+                    <Grid Margin="0,0,0,12">
+                        <TextBlock Text="Largest Individual Files (Top 5)" FontSize="15" FontWeight="SemiBold" />
+                        <Button HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}" Content="Inspect in Inventory →"
+                                Command="{Binding NavigateToCommand}" CommandParameter="Inventory" Height="24" Padding="8,0" FontSize="11" />
                     </Grid>
+
+                    <ItemsControl ItemsSource="{Binding LargestFiles}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,7" Margin="0,2">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                                            <TextBlock Text="{Binding ParentPath}" FontSize="10" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Text="{Binding Extension}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding SizeBytes, StringFormat='{}{0:N0} B'}" FontWeight="Bold" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{StaticResource AccentHoverBrush}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                 </StackPanel>
             </Border>
 

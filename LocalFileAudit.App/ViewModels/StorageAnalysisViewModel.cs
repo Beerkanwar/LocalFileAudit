@@ -45,6 +45,7 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
     public ObservableCollection<FileRecord> LargestFiles { get; } = new();
     public ObservableCollection<DirectorySummary> LargestDirectories { get; } = new();
     public ObservableCollection<CandidateClassification> ReviewCandidates { get; } = new();
+    public ObservableCollection<ReportFolderInfo> GeneratedReports { get; } = new();
 
     public StorageAnalysisViewModel(
         IStorageAnalysisEngine analysisEngine,
@@ -78,10 +79,29 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
             {
                 await LoadAnalysisAsync(SelectedScan.Id);
             }
+
+            await RefreshGeneratedReportsAsync();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load scans for analysis.");
+        }
+    }
+
+    public async Task RefreshGeneratedReportsAsync()
+    {
+        try
+        {
+            var reports = await _reportGenerator.GetGeneratedReportsAsync();
+            GeneratedReports.Clear();
+            foreach (var r in reports)
+            {
+                GeneratedReports.Add(r);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to refresh generated reports list.");
         }
     }
 
@@ -141,6 +161,7 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
             LastExportedReportPath = result.OutputDirectory;
             StatusMessage = $"Successfully generated {result.GeneratedFiles.Count} reports in: {result.OutputDirectory}";
             _logger.LogInformation("Exported reports to {OutputDir}", result.OutputDirectory);
+            await RefreshGeneratedReportsAsync();
         }
         catch (Exception ex)
         {
@@ -159,17 +180,59 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(LastExportedReportPath) || !Directory.Exists(LastExportedReportPath))
             return;
 
+        OpenFolder(LastExportedReportPath);
+    }
+
+    [RelayCommand]
+    public void OpenReportFolder(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath)) return;
+        OpenFolder(folderPath);
+    }
+
+    [RelayCommand]
+    public void OpenHtmlSummary(string htmlPath)
+    {
+        if (string.IsNullOrWhiteSpace(htmlPath) || !File.Exists(htmlPath)) return;
+        OpenFileWithShell(htmlPath);
+    }
+
+    [RelayCommand]
+    public void OpenMarkdownSummary(string mdPath)
+    {
+        if (string.IsNullOrWhiteSpace(mdPath) || !File.Exists(mdPath)) return;
+        OpenFileWithShell(mdPath);
+    }
+
+    private void OpenFolder(string path)
+    {
         try
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = LastExportedReportPath,
+                FileName = path,
                 UseShellExecute = true
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to open report folder in explorer.");
+            _logger.LogError(ex, "Failed to open folder {Path}", path);
+        }
+    }
+
+    private void OpenFileWithShell(string filePath)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = filePath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to open file {FilePath}", filePath);
         }
     }
 }

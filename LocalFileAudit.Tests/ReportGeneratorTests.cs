@@ -148,6 +148,35 @@ public class ReportGeneratorTests : IDisposable
         Assert.Contains("Incomplete Scan Notice", htmlContent);
     }
 
+    [Fact]
+    public async Task GetGeneratedReports_DiscoversAndParsesPreviouslyExportedReports()
+    {
+        var scanId = Guid.NewGuid();
+        var run = new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.Completed,
+            SelectedDrives = @"D:\"
+        };
+        await _repository.CreateScanRunAsync(run);
+
+        // Generate a report
+        var result = await _generator.GenerateReportsAsync(scanId);
+
+        // Enumerate reports
+        var reports = await _generator.GetGeneratedReportsAsync();
+        Assert.Single(reports);
+        var report = reports[0];
+
+        Assert.Equal(scanId, report.ScanRunId);
+        Assert.True(report.IsCompleteScan);
+        Assert.NotNull(report.HtmlSummaryPath);
+        Assert.True(File.Exists(report.HtmlSummaryPath));
+        Assert.NotNull(report.MarkdownSummaryPath);
+        Assert.True(File.Exists(report.MarkdownSummaryPath));
+        Assert.Equal(8, report.ReportFiles.Count);
+    }
+
     public void Dispose()
     {
         try

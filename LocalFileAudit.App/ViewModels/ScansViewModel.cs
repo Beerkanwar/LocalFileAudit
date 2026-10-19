@@ -68,6 +68,37 @@ public sealed partial class ScansViewModel : ViewModelBase
     public ObservableCollection<DriveSelectionItem> AvailableDrives { get; } = new();
     public ObservableCollection<ScanRun> RecentScans { get; } = new();
 
+    public Action<Guid>? OnNavigateToInventoryWithScan { get; set; }
+    public Action<Guid>? OnNavigateToAnalysisWithScan { get; set; }
+
+    [RelayCommand]
+    public void ViewInventoryForScan(Guid scanRunId)
+    {
+        OnNavigateToInventoryWithScan?.Invoke(scanRunId);
+    }
+
+    [RelayCommand]
+    public void ViewAnalysisForScan(Guid scanRunId)
+    {
+        OnNavigateToAnalysisWithScan?.Invoke(scanRunId);
+    }
+
+    [RelayCommand]
+    public async Task DeleteScanHistoryAsync(Guid scanRunId)
+    {
+        try
+        {
+            await _repository.DiscardScanRunAsync(scanRunId);
+            ScanStatusText = $"Scan history record {scanRunId} removed from database. Source files untouched.";
+            await RefreshScansAsync();
+        }
+        catch (Exception ex)
+        {
+            ScanStatusText = $"Failed to remove scan history: {ex.Message}";
+            _logger.LogError(ex, "Failed to discard scan run {ScanRunId}", scanRunId);
+        }
+    }
+
     public ScansViewModel(
         IScanEngine scanEngine,
         IScanRepository repository,

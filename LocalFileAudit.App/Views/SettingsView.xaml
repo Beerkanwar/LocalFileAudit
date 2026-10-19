@@ -183,27 +183,61 @@
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Config File:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" />
-                        <TextBlock Grid.Column="1" Text="{Binding ConfigPath}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="Config File:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding ConfigPath}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}" Content="📂 Open" Command="{Binding OpenConfigDirectoryCommand}" Height="24" Padding="8,0" FontSize="11" />
                     </Grid>
 
-                    <Grid Margin="0,3">
+                    <Grid Margin="0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Logs Directory:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" />
-                        <TextBlock Grid.Column="1" Text="{Binding LogsPath}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="Logs Directory:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding LogsPath}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}" Content="📂 Open" Command="{Binding OpenLogsDirectoryCommand}" Height="24" Padding="8,0" FontSize="11" />
                     </Grid>
 
-                    <Grid Margin="0,3">
+                    <Grid Margin="0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Database Path:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" />
-                        <TextBlock Grid.Column="1" Text="{Binding DatabasePath}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextWrapping="Wrap" />
+                        <TextBlock Text="Database Path:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding DatabasePath}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}" Content="📂 Open" Command="{Binding OpenDatabaseDirectoryCommand}" Height="24" Padding="8,0" FontSize="11" />
+                    </Grid>
+
+                    <Grid Margin="0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Reports Path:" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding ReportsPath}" Foreground="{StaticResource TextPrimaryBrush}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" />
+                        <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}" Content="📂 Open" Command="{Binding OpenReportsDirectoryCommand}" Height="24" Padding="8,0" FontSize="11" />
+                    </Grid>
+
+                    <Separator Background="{StaticResource BorderBrush}" Margin="0,12" />
+
+                    <!-- SQLite Database Backup -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Application Database Backup" FontWeight="SemiBold" FontSize="13" />
+                            <TextBlock Text="Create a consistent online SQLite database backup using SQLite's backup API while WAL mode is active."
+                                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="11" Margin="0,2,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Style="{StaticResource SecondaryButtonStyle}" Content="💾 Create Database Backup"
+                                Command="{Binding CreateDatabaseBackupCommand}" Height="32" Padding="12,0" FontSize="12" />
                     </Grid>
                 </StackPanel>
             </Border>

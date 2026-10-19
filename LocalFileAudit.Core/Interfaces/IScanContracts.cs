@@ -33,6 +33,10 @@ public interface IScanRepository
 
     Task InsertScanErrorAsync(ScanErrorRecord error, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ScanErrorRecord>> GetScanErrorsAsync(Guid scanRunId, int limit = 100, CancellationToken cancellationToken = default);
+
+    Task<PagedResult<FileRecord>> QueryFilesAsync(FileInventoryQuery query, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<string>> GetDiscoveredExtensionsAsync(Guid? scanRunId, CancellationToken cancellationToken = default);
+    Task BackupDatabaseAsync(string destinationPath, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
