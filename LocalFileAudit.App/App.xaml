@@ -1,9 +1,43 @@
-﻿<Application x:Class="LocalFileAudit.App.App"
+<Application x:Class="LocalFileAudit.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:LocalFileAudit.App"
-             StartupUri="MainWindow.xaml">
+             xmlns:vm="clr-namespace:LocalFileAudit.App.ViewModels"
+             xmlns:views="clr-namespace:LocalFileAudit.App.Views">
     <Application.Resources>
-         
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/Theme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- ViewModel to View Mappings -->
+            <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
+                <views:DashboardView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:ScansViewModel}">
+                <views:ScansView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:InventoryViewModel}">
+                <views:InventoryView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:StorageAnalysisViewModel}">
+                <views:StorageAnalysisView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:DuplicateAnalysisViewModel}">
+                <views:DuplicateAnalysisView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:AiReportsViewModel}">
+                <views:AiReportsView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+                <views:SettingsView />
+            </DataTemplate>
+
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -1,3 +1,6 @@
 <Solution>
   <Project Path="LocalFileAudit.App/LocalFileAudit.App.csproj" />
+  <Project Path="LocalFileAudit.Core/LocalFileAudit.Core.csproj" />
+  <Project Path="LocalFileAudit.Infrastructure/LocalFileAudit.Infrastructure.csproj" />
+  <Project Path="LocalFileAudit.Tests/LocalFileAudit.Tests.csproj" />
 </Solution>
