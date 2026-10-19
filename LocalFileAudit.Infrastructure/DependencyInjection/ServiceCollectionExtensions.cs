@@ -32,6 +32,9 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IOllamaClient, LocalFileAudit.Infrastructure.AI.OllamaClient>();
         services.AddSingleton<IAiAnalysisService, LocalFileAudit.Infrastructure.AI.AiAnalysisService>();
 
+        // Duplicate Detection
+        services.AddSingleton<IDuplicateAnalysisEngine, DuplicateAnalysisEngine>();
+
         return services;
     }
 }

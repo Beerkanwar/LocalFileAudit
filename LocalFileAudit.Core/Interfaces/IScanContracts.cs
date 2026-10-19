@@ -40,6 +40,8 @@ public interface IScanRepository
 
     Task InsertAiReportAsync(AiReportRecord report, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AiReportRecord>> GetAiReportsAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default);
+
+    Task UpdateFileHashAsync(long fileId, string hashAlgorithm, string hashValue, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -667,6 +667,31 @@ public sealed class SqliteScanRepository : IScanRepository
         return reports;
     }
 
+    public async Task UpdateFileHashAsync(long fileId, string hashAlgorithm, string hashValue, CancellationToken cancellationToken = default)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                UPDATE Files
+                SET HashAlgorithm = @HashAlgorithm,
+                    HashValue = @HashValue
+                WHERE Id = @Id;
+            ";
+            cmd.Parameters.AddWithValue("@Id", fileId);
+            cmd.Parameters.AddWithValue("@HashAlgorithm", hashAlgorithm);
+            cmd.Parameters.AddWithValue("@HashValue", hashValue);
+
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     private static FileRecord MapFileRecord(SqliteDataReader reader)
     {
         return new FileRecord

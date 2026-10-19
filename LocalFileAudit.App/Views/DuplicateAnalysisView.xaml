@@ -6,41 +6,227 @@
              xmlns:vm="clr-namespace:LocalFileAudit.App.ViewModels"
              d:DataContext="{d:DesignInstance Type=vm:DuplicateAnalysisViewModel}"
              mc:Ignorable="d" 
-             d:DesignHeight="600" d:DesignWidth="900">
+             d:DesignHeight="850" d:DesignWidth="1050">
     <Grid Margin="24">
         <Grid.RowDefinitions>
+            <!-- Header & Safety Warning -->
             <RowDefinition Height="Auto" />
+            <!-- Controls & KPI Cards -->
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
+            <!-- Master-Detail Content: Groups & Files -->
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TextBlock Grid.Row="0" Text="Duplicate Analysis" FontSize="26" FontWeight="Bold" Margin="0,0,0,6" />
-        <TextBlock Grid.Row="1" Text="Identify identical file content via optional two-stage size grouping and SHA-256 hashing."
-                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="14" Margin="0,0,0,16" />
-
-        <!-- Mandatory Safety Notice -->
-        <Border Grid.Row="2" Background="#332414" BorderBrush="{StaticResource WarningBrush}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,24">
-            <Grid>
+        <!-- Section 1: Header & Warning Banner -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <Grid Margin="0,0,0,10">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="⚠" Foreground="{StaticResource WarningBrush}" FontSize="24" Margin="0,0,12,0" VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                    <TextBlock Text="Duplicate Interpretation &amp; Safety Policy" FontWeight="Bold" FontSize="14" Foreground="#FDE68A" />
-                    <TextBlock Text="{Binding SafetyNotice}" Foreground="#FEF3C7" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,0" />
+                <StackPanel>
+                    <TextBlock Text="Duplicate File Analysis" FontSize="26" FontWeight="Bold" Margin="0,0,0,4" />
+                    <TextBlock Text="Two-stage duplicate identification: Fast exact-size clustering followed by optional SHA-256 content verification."
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" />
                 </StackPanel>
+                <Border Grid.Column="1" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,6" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="{StaticResource AccentHoverBrush}" TextTrimming="CharacterEllipsis" MaxWidth="450" />
+                </Border>
             </Grid>
-        </Border>
 
-        <Border Grid.Row="3" Style="{StaticResource CardBorderStyle}" VerticalAlignment="Top">
-            <StackPanel>
-                <TextBlock Text="Two-Stage Hashing Engine" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8" />
-                <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,16" />
-                <TextBlock Text="Phase 6 will implement size matching followed by bounded-concurrency SHA-256 hash comparison."
-                           Foreground="{StaticResource TextMutedBrush}" FontSize="12" TextWrapping="Wrap" />
-            </StackPanel>
-        </Border>
+            <!-- Prominent Safety Warning Banner -->
+            <Border Background="#2B1A0E" BorderBrush="{StaticResource WarningBrush}" BorderThickness="1" CornerRadius="8" Padding="14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Background="{StaticResource WarningBrush}" CornerRadius="16" Width="30" Height="30" Margin="0,0,14,0" VerticalAlignment="Center">
+                        <TextBlock Text="⚠" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Important Decision-Support Safety Notice" FontWeight="Bold" FontSize="13" Foreground="#FCD34D" />
+                        <TextBlock Text="Identical files are often intentionally replicated by operating systems, application runtimes, and package managers. Having identical content does NOT make a file safe to delete. LocalFileAudit never deletes or modifies files."
+                                   Foreground="#FDE68A" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <!-- Section 2: Controls Strip & KPI Cards -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,16">
+            <!-- Controls Strip -->
+            <Border Style="{StaticResource CardBorderStyle}" Padding="14,10" Margin="0,0,0,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2*" />
+                        <ColumnDefinition Width="1*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                        <TextBlock Text="SCAN RUN" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" />
+                        <ComboBox ItemsSource="{Binding AvailableScans}" SelectedItem="{Binding SelectedScan}" DisplayMemberPath="SelectedDrives" Height="32" FontSize="12" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                        <TextBlock Text="MINIMUM FILE SIZE" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" />
+                        <ComboBox ItemsSource="{Binding MinSizeOptions}" SelectedItem="{Binding SelectedMinSizeOption}" DisplayMemberPath="DisplayName" Height="32" FontSize="12" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="1. Find by Size" Command="{Binding FindPotentialDuplicatesCommand}"
+                                IsEnabled="{Binding IsAnalyzing, Converter={x:Null}}" Height="32" Padding="14,0" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="2. Verify Hashes (SHA-256)" Command="{Binding VerifyHashesCommand}"
+                                IsEnabled="{Binding IsHashing, Converter={x:Null}}" Height="32" Padding="14,0" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="⏹ Cancel" Command="{Binding CancelHashingCommand}"
+                                IsEnabled="{Binding IsHashing}" Height="32" Padding="10,0" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <!-- Hashing Progress Bar -->
+            <Grid Margin="0,0,0,14" Visibility="{Binding IsHashing, Converter={x:Null}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid Margin="0,0,0,4">
+                    <TextBlock Text="Computing SHA-256 Hashes..." FontSize="11" Foreground="{StaticResource AccentHoverBrush}" />
+                    <TextBlock Text="{Binding HashingProgressText}" HorizontalAlignment="Right" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
+                </Grid>
+                <ProgressBar Grid.Row="1" Value="{Binding HashingProgressPercent, Mode=OneWay}" Maximum="100" Height="6"
+                             Foreground="{StaticResource AccentPrimaryBrush}" Background="#1A1C22" BorderThickness="0" />
+            </Grid>
+
+            <!-- KPI Cards Grid -->
+            <UniformGrid Columns="4">
+                <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,8,0">
+                    <StackPanel>
+                        <TextBlock Text="DUPLICATE GROUPS" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding GroupsCountText}" FontSize="20" FontWeight="Bold" Margin="0,6,0,0" />
+                        <TextBlock Text="Exact size matches" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
+                    <StackPanel>
+                        <TextBlock Text="POTENTIAL WASTED SPACE" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding PotentialWastedSpaceText}" FontSize="20" FontWeight="Bold" Foreground="{StaticResource WarningBrush}" Margin="0,6,0,0" />
+                        <TextBlock Text="Based on size grouping" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorderStyle}" Margin="4,0,4,0">
+                    <StackPanel>
+                        <TextBlock Text="VERIFIED WASTED SPACE" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding VerifiedWastedSpaceText}" FontSize="20" FontWeight="Bold" Foreground="{StaticResource SafeBrush}" Margin="0,6,0,0" />
+                        <TextBlock Text="Matching SHA-256 hashes" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource CardBorderStyle}" Margin="8,0,0,0">
+                    <StackPanel>
+                        <TextBlock Text="VERIFICATION STAGE" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                        <TextBlock Text="{Binding IsVerifiedStage, StringFormat='{}SHA-256: {0}'}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource AccentHoverBrush}" Margin="0,8,0,0" />
+                        <TextBlock Text="Cryptographic match" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+            </UniformGrid>
+        </StackPanel>
+
+        <!-- Section 3: Master-Detail Duplicate Groups & Files -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="380" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left Column: Duplicate Groups List -->
+            <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" Padding="0" Margin="0,0,12,0">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Top" Background="{StaticResource SidebarBackgroundBrush}" Padding="14,10" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <TextBlock Text="Duplicate Clusters (Grouped by Size &amp; Hash)" FontSize="13" FontWeight="SemiBold" />
+                    </Border>
+
+                    <ListBox ItemsSource="{Binding DuplicateGroups}"
+                             SelectedItem="{Binding SelectedGroup}"
+                             Background="{StaticResource CardBackgroundBrush}"
+                             BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="12,8" Margin="0,2" CornerRadius="4" Background="{StaticResource CardElevatedBackgroundBrush}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding SizeBytes, StringFormat='{}Size: {0:N0} bytes'}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
+                                            <TextBlock Text="{Binding Files.Count, StringFormat='{}{0} duplicate copies'}" FontSize="11" Foreground="{StaticResource AccentHoverBrush}" Margin="0,2,0,0" />
+                                            <TextBlock Text="{Binding HashValue, StringFormat='{}SHA-256: {0}', FallbackValue='SHA-256: Not verified'}" FontSize="10" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                            <Border Background="#2C2415" CornerRadius="4" Padding="6,2" HorizontalAlignment="Right">
+                                                <TextBlock Text="{Binding WastedSizeMb, StringFormat='{}+ {0:F1} MB'}" FontSize="11" FontWeight="Bold" Foreground="#FCD34D" />
+                                            </Border>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Right Column: Files in Selected Group -->
+            <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}" Padding="16">
+                <DockPanel LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,14">
+                        <Grid>
+                            <TextBlock Text="Files in Selected Cluster" FontSize="15" FontWeight="SemiBold" />
+                            <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
+                                <Button Style="{StaticResource SecondaryButtonStyle}" Content="📋 Copy Path" Command="{Binding CopyPathCommand}" Height="26" Padding="8,0" Margin="0,0,6,0" FontSize="11" />
+                                <Button Style="{StaticResource SecondaryButtonStyle}" Content="📂 Reveal in Explorer" Command="{Binding RevealInExplorerCommand}" Height="26" Padding="8,0" FontSize="11" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Text="Each item below contains identical byte length and/or cryptographic content. Inspect paths carefully before making any manual decisions."
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,4,0,0" />
+                    </StackPanel>
+
+                    <ListBox ItemsSource="{Binding SelectedGroupFiles}"
+                             SelectedItem="{Binding SelectedFile}"
+                             Background="{StaticResource CardBackgroundBrush}"
+                             BorderThickness="0"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="12,10" Margin="0,3" CornerRadius="4" Background="{StaticResource CardElevatedBackgroundBrush}">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding FileName}" FontWeight="Bold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Grid.Column="1" Text="{Binding LastWriteTimeUtc, StringFormat='{}Modified: {0:yyyy-MM-dd HH:mm}'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
+                                        </Grid>
+                                        <StackPanel Grid.Row="1" Margin="0,4,0,0">
+                                            <TextBlock Text="{Binding FullPath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />
+                                            <TextBlock Text="{Binding HashValue, StringFormat='{}SHA-256: {0}', FallbackValue='SHA-256: Not yet hashed'}" FontSize="10" FontFamily="Consolas" Foreground="{StaticResource AccentHoverBrush}" Margin="0,2,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>
