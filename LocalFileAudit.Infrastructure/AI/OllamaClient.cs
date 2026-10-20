@@ -177,7 +177,8 @@ public sealed class OllamaClient : IOllamaClient
             options = new
             {
                 temperature = 0.1,
-                num_ctx = 4096
+                num_ctx = 4096,
+                num_predict = 1536
             }
         };
 
@@ -259,7 +260,8 @@ public sealed class OllamaClient : IOllamaClient
             options = new
             {
                 temperature = 0.3,
-                num_ctx = 4096
+                num_ctx = 4096,
+                num_predict = 1024
             }
         };
 

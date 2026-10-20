@@ -51,6 +51,11 @@ public sealed class AiAnalysisService : IAiAnalysisService
         var configured = _configurationService.Current.AI.MaxPayloadCandidates;
         var maxCandidates = configured > 0 ? Math.Min(configured, 25) : 25;
 
+        var uniqueCandidates = summary.ReviewCandidates
+            .GroupBy(c => c.FileRecordId)
+            .Select(g => g.First())
+            .Take(maxCandidates);
+
         return new
         {
             ScanOverview = new
@@ -73,7 +78,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
                 Path = redactPaths ? PathRedactor.Redact(d.DirectoryPath) : d.DirectoryPath,
                 DirectSizeMb = Math.Round(d.DirectSizeBytes / (1024.0 * 1024.0), 2)
             }),
-            CandidatesForReview = summary.ReviewCandidates.Take(maxCandidates).Select(c => new
+            CandidatesForReview = uniqueCandidates.Select(c => new
             {
                 CandidateId = c.FileRecordId,
                 FileName = c.FileName,
@@ -102,7 +107,9 @@ SECURITY & SAFETY RULES (PERMANENT & UNBREAKABLE):
 5. Only reference CandidateIds that exist in the provided input. Do not invent files, sizes, or paths.
 
 OUTPUT FORMAT REQUIREMENTS:
-You MUST reply with a single, valid JSON object matching this exact structure:
+You MUST reply with a single, valid JSON object matching this exact structure.
+Do NOT include preamble, thinking process, chain-of-thought, or <think> tags.
+Output ONLY raw JSON starting with '{' and ending with '}'.
 {
   ""executiveSummary"": ""High level 2-3 sentence overview of storage consumption."",
   ""storageHotspotsAssessment"": ""Assessment of top file types and largest directories."",
@@ -205,7 +212,11 @@ You MUST reply with a single, valid JSON object matching this exact structure:
         var hotspots = root.TryGetProperty("storageHotspotsAssessment", out var hsProp) ? hsProp.GetString() ?? "" : "";
 
         var knownCandidateIds = new HashSet<long>(summary.ReviewCandidates.Select(c => c.FileRecordId));
-        var candidateMap = summary.ReviewCandidates.ToDictionary(c => c.FileRecordId);
+        var candidateMap = new Dictionary<long, CandidateClassification>();
+        foreach (var c in summary.ReviewCandidates)
+        {
+            candidateMap.TryAdd(c.FileRecordId, c);
+        }
 
         var recommendations = new List<AiRecommendation>();
         if (root.TryGetProperty("recommendations", out var recsArray) && recsArray.ValueKind == JsonValueKind.Array)
@@ -219,13 +230,11 @@ You MUST reply with a single, valid JSON object matching this exact structure:
                 }
 
                 // Discard hallucinated candidate IDs that were not present in the inventory
-                if (!knownCandidateIds.Contains(candidateId))
+                if (!knownCandidateIds.Contains(candidateId) || !candidateMap.TryGetValue(candidateId, out var actualCandidate))
                 {
                     _logger.LogWarning("AI recommended an unknown or hallucinated candidate ID: {CandidateId}. Skipping.", candidateId);
                     continue;
                 }
-
-                var actualCandidate = candidateMap[candidateId];
 
                 recommendations.Add(new AiRecommendation
                 {

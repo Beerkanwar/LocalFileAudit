@@ -1101,6 +1101,7 @@ public sealed class SqliteScanRepository : IScanRepository
     public async Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default)
     {
         var list = new List<CandidateClassification>();
+        var seenFileIds = new HashSet<long>();
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = @"
@@ -1117,6 +1118,11 @@ public sealed class SqliteScanRepository : IScanRepository
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var fileId = reader.IsDBNull(0) ? 0L : reader.GetInt64(0);
+            if (fileId > 0 && !seenFileIds.Add(fileId))
+            {
+                continue;
+            }
+
             var categoryStr = reader.GetString(1);
             var ruleId = reader.GetString(2);
             var priority = reader.GetInt32(3);
@@ -1158,6 +1164,15 @@ public sealed class SqliteScanRepository : IScanRepository
         {
             await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             await using var tx = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            await using (var delCmd = connection.CreateCommand())
+            {
+                delCmd.Transaction = (SqliteTransaction)tx;
+                delCmd.CommandText = "DELETE FROM AnalysisResults WHERE ScanRunId = @ScanRunId;";
+                delCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+                await delCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             await using var cmd = connection.CreateCommand();
             cmd.Transaction = (SqliteTransaction)tx;
             cmd.CommandText = @"
@@ -1173,7 +1188,9 @@ public sealed class SqliteScanRepository : IScanRepository
             var pExp = cmd.Parameters.Add("@Explanation", SqliteType.Text);
             var pVer = cmd.Parameters.Add("@AnalysisVersion", SqliteType.Text);
 
-            foreach (var c in results)
+            var distinctResults = results.GroupBy(c => c.FileRecordId).Select(g => g.First()).ToList();
+
+            foreach (var c in distinctResults)
             {
                 pScan.Value = scanRunId.ToString();
                 pFile.Value = c.FileRecordId > 0 ? c.FileRecordId : (object)DBNull.Value;

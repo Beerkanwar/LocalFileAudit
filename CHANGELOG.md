@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.9] - 2026-10-21
+
+### Fixed
+- **Resilience Against Duplicate Candidate IDs (`Key already added` exception):**
+  - Resolved `ArgumentException: An item with the same key has already been added. Key: 591166` in `AiAnalysisService.ValidateAndParseResponse` by replacing `.ToDictionary(c => c.FileRecordId)` with collision-safe `candidateMap.TryAdd(c.FileRecordId, c)` and `TryGetValue`.
+  - Added unique candidate grouping (`.GroupBy(c => c.FileRecordId).Select(g => g.First())`) in `BuildInferencePayload` ensuring prompt candidates are always unique by file ID.
+  - Implemented automatic cache purging (`DELETE FROM AnalysisResults WHERE ScanRunId = @ScanRunId;`) and candidate deduplication in `SqliteScanRepository.SaveAnalysisResultsAsync`, preventing duplicate rows from accumulating across repeated analysis runs.
+  - Added duplicate `FileId` filtering in `GetCachedAnalysisResultsAsync` using a `seenFileIds` set to safely handle existing SQLite databases with historical duplicate analysis rows.
+- **Runaway Generation Prevention (`num_predict` Token Cap):**
+  - Added `num_predict = 1536` in `OllamaClient.GenerateJsonAsync` and `num_predict = 1024` in `SendChatAsync`. In "Thinking" models (such as `qwen3:4b`), omitting `num_predict` allowed llama-server's `--context-shift` feature to shift contexts and loop token generation indefinitely across multiple context shifts (generating >5,700 tokens over 7 minutes).
+  - Explicitly instructed the model in the system prompt to suppress internal chain-of-thought monologue and `<think>...</think>` tags during JSON generation mode, outputting the structured JSON object immediately.
+
+---
+
 ## [1.3.8] - 2026-10-21
 
 ### Fixed

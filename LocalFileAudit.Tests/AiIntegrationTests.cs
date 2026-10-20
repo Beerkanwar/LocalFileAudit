@@ -378,6 +378,82 @@ public class AiIntegrationTests : IDisposable
         Assert.Contains("Settings", ex.Message);
     }
 
+    [Fact]
+    public void ValidateAndParseResponse_WhenDuplicateCandidateIdsInSummary_HandlesGracefullyWithoutThrowing()
+    {
+        var mockHandler = new MockHttpMessageHandler();
+        var httpClient = new HttpClient(mockHandler);
+        var client = new OllamaClient(httpClient, _configService, NullLogger<OllamaClient>.Instance);
+        var service = new AiAnalysisService(client, _analysisEngine, _repository, _environment, _configService, NullLogger<AiAnalysisService>.Instance);
+
+        var summary = new StorageMetricsSummary
+        {
+            TotalFiles = 50,
+            TotalLogicalSizeBytes = 1024 * 1024 * 500,
+            ReviewCandidates = new List<CandidateClassification>
+            {
+                new CandidateClassification { FileRecordId = 591166, FileName = "test_dup.iso", Extension = ".iso", SizeBytes = 1024 * 1024 * 200, Category = CandidateCategory.ArchiveCandidate },
+                new CandidateClassification { FileRecordId = 591166, FileName = "test_dup.iso", Extension = ".iso", SizeBytes = 1024 * 1024 * 200, Category = CandidateCategory.ArchiveCandidate }
+            }
+        };
+
+        var aiJson = JsonSerializer.Serialize(new
+        {
+            executiveSummary = "Storage contains duplicate candidate files.",
+            storageHotspotsAssessment = "ISO archives take up storage.",
+            recommendations = new[]
+            {
+                new
+                {
+                    candidateId = 591166,
+                    fileName = "test_dup.iso",
+                    suggestedCategory = "Archive candidate",
+                    explanation = "Duplicate candidate safely handled.",
+                    evidence = "200 MB ISO file.",
+                    confidenceLevel = "High",
+                    uncertainty = "None",
+                    recommendedVerificationStep = "Verify file."
+                }
+            },
+            prioritizedReviewPlan = new[] { "Review duplicates." },
+            safetyWarnings = new[] { "Safety warning." }
+        });
+
+        // Must not throw "An item with the same key has already been added. Key: 591166"
+        var result = service.ValidateAndParseResponse(aiJson, summary, "qwen3:4b");
+
+        Assert.NotNull(result);
+        Assert.Single(result.Recommendations);
+        Assert.Equal(591166, result.Recommendations[0].CandidateId);
+    }
+
+    [Fact]
+    public async Task SqliteScanRepository_SaveAnalysisResultsAsync_WhenCalledMultipleTimes_OverwritesAndDeduplicates()
+    {
+        var scanId = Guid.NewGuid();
+        var run = new ScanRun { Id = scanId, Status = ScanState.Completed, SelectedDrives = @"C:\" };
+        await _repository.CreateScanRunAsync(run);
+
+        var candidates = new List<CandidateClassification>
+        {
+            new CandidateClassification { FileRecordId = 1001, Category = CandidateCategory.ArchiveCandidate, RuleId = "R1", Priority = 1, Confidence = 0.9, Explanation = "E1" },
+            new CandidateClassification { FileRecordId = 1001, Category = CandidateCategory.ArchiveCandidate, RuleId = "R1", Priority = 1, Confidence = 0.9, Explanation = "E1" },
+            new CandidateClassification { FileRecordId = 1002, Category = CandidateCategory.CleanupCandidate, RuleId = "R2", Priority = 2, Confidence = 0.8, Explanation = "E2" }
+        };
+
+        // First save
+        await _repository.SaveAnalysisResultsAsync(scanId, candidates);
+        // Second save (re-analyzed)
+        await _repository.SaveAnalysisResultsAsync(scanId, candidates);
+
+        var cached = await _repository.GetCachedAnalysisResultsAsync(scanId);
+
+        // Must be exactly 2 unique items (1001 and 1002), no duplicate FileRecordIds
+        Assert.Equal(2, cached.Count);
+        Assert.Contains(cached, c => c.FileRecordId == 1001);
+        Assert.Contains(cached, c => c.FileRecordId == 1002);
+    }
+
     public void Dispose()
     {
         try
