@@ -80,6 +80,7 @@ jobs:
           - **Archive Verification & Planning:** Read-only comparison with SHA-256 and reviewable PowerShell script generation.
           - **Run Comparison:** Historical scan diffing to track new, deleted, and modified files.
           - **Optional Local AI Review:** Local Ollama integration (`http://127.0.0.1:11434`) with follow-up chat support.
+          - **Changelog:** Detailed version history in [CHANGELOG.md](https://github.com/Beerkanwar/LocalFileAudit/blob/main/CHANGELOG.md).
 
           ---
 

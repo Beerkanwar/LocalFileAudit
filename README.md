@@ -174,6 +174,7 @@ LocalFileAudit works completely offline without AI. If you wish to enable the op
 - [Security Policy](SECURITY.md) — Security model, non-destructive guarantees, and vulnerability reporting.
 - [Privacy Policy](PRIVACY.md) — Complete data handling details and loopback enforcement.
 - [User Guide](USER_GUIDE.md) — Step-by-step instructions for running audits and reviewing results.
+- [Changelog](CHANGELOG.md) — Detailed version history, release notes, and migration records.
 - [Third-Party Licenses](THIRD_PARTY_LICENSES.md) — Open-source dependencies and license notices.
 
 ---

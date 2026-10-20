@@ -63,6 +63,11 @@ public sealed partial class ScansViewModel : ViewModelBase
     [ObservableProperty]
     private ScanRun? _incompleteScan;
 
+    public bool HasIncompleteScan => IncompleteScan != null;
+
+    partial void OnIncompleteScanChanged(ScanRun? value)
+        => OnPropertyChanged(nameof(HasIncompleteScan));
+
     [ObservableProperty]
     private string _customDirectoryPath = string.Empty;
 

@@ -413,10 +413,14 @@ public sealed partial class AiReportsViewModel : ViewModelBase
         }
         catch (OperationCanceledException)
         {
+            ChatMessages.Remove(tempUserMsg);
+            ChatInputText = message;
             ChatStatusMessage = "Inference timed out or was cancelled.";
         }
         catch (Exception ex)
         {
+            ChatMessages.Remove(tempUserMsg);
+            ChatInputText = message;
             ChatStatusMessage = $"Error: {ex.Message}";
             _logger.LogError(ex, "AI chat failed");
         }

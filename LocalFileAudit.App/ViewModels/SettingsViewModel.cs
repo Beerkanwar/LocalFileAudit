@@ -162,10 +162,18 @@ public sealed partial class SettingsViewModel : ViewModelBase
         set => SetProperty(ref _logRetainDays, value);
     }
 
+    public bool HasStatusMessage => !string.IsNullOrWhiteSpace(_statusMessage);
+
     public string StatusMessage
     {
         get => _statusMessage;
-        set => SetProperty(ref _statusMessage, value);
+        set
+        {
+            if (SetProperty(ref _statusMessage, value))
+            {
+                OnPropertyChanged(nameof(HasStatusMessage));
+            }
+        }
     }
 
     public bool IsStatusError

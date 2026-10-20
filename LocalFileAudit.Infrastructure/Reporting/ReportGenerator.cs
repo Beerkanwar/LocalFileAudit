@@ -559,15 +559,14 @@ public sealed class ReportGenerator : IReportGenerator
                             ? (now - file.LastWriteTimeUtc.Value).TotalDays.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
                             : "0.0";
 
-                        var escapedPath = file.FullPath.Contains(',') || file.FullPath.Contains('"')
-                            ? $"\"{file.FullPath.Replace("\"", "\"\"")}\""
-                            : file.FullPath;
+                        var escapedPath = EscapeCsv(file.FullPath);
+                        var escapedExtension = EscapeCsv(file.Extension);
 
                         var line = string.Format(
                             System.Globalization.CultureInfo.InvariantCulture,
                             "{0},{1},{2},{3},{4},{5}",
                             escapedPath,
-                            file.Extension,
+                            escapedExtension,
                             file.SizeBytes,
                             lastWriteTimeStr,
                             ageDays,

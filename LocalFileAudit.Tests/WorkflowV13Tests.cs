@@ -335,7 +335,7 @@ public sealed class WorkflowV13Tests : IDisposable
             Status = ScanState.Completed,
             SelectedDrives = @"C:\Test",
             ConfigurationSnapshot = "{}",
-            ApplicationVersion = "1.3.1"
+            ApplicationVersion = AppVersion.Current
         };
         await repo.CreateScanRunAsync(scanRun);
 
@@ -399,9 +399,10 @@ public sealed class WorkflowV13Tests : IDisposable
         var verifierType = typeof(ArchiveVerificationService);
         Assert.NotNull(verifierType);
 
-        // Verify version matches 1.3.1
+        // Verify version matches semver format without hardcoded release literals
         var currentVersion = AppVersion.Current;
-        Assert.Equal("1.3.1", currentVersion);
+        Assert.Matches(@"^\d+\.\d+\.\d+", currentVersion);
+        Assert.NotEqual("0.0.0-unknown", currentVersion);
     }
 
     [Fact]
@@ -459,6 +460,31 @@ public sealed class WorkflowV13Tests : IDisposable
         Assert.True(reloaded.Batches.First(b => b.Id == b1.Id).IsVerified);
         Assert.True(reloaded.Batches.First(b => b.Id == b2.Id).IsVerified);
         Assert.False(reloaded.Batches.First(b => b.Id == b3.Id).IsVerified);
+    }
+
+    [Fact]
+    public void RegressionGuard_NoConverterNullPlaceholdersInXamlViews()
+    {
+        // Locate solution directory
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "LocalFileAudit.slnx")))
+        {
+            dir = dir.Parent;
+        }
+
+        Assert.NotNull(dir);
+        var viewsDir = Path.Combine(dir.FullName, "LocalFileAudit.App", "Views");
+        Assert.True(Directory.Exists(viewsDir), $"Views directory not found at {viewsDir}");
+
+        var xamlFiles = Directory.GetFiles(viewsDir, "*.xaml", SearchOption.AllDirectories);
+        Assert.NotEmpty(xamlFiles);
+
+        foreach (var file in xamlFiles)
+        {
+            var content = File.ReadAllText(file);
+            Assert.False(content.Contains("Converter={x:Null}"),
+                $"Found forbidden 'Converter={{x:Null}}' placeholder in {Path.GetFileName(file)}");
+        }
     }
 
     #endregion

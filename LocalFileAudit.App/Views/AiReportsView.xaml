@@ -121,20 +121,20 @@
 
                         <ProgressBar IsIndeterminate="{Binding IsGenerating}" Height="4" VerticalAlignment="Center" Margin="0,0,16,0"
                                      Foreground="{StaticResource AccentPrimaryBrush}" Background="Transparent" BorderThickness="0"
-                                     Visibility="{Binding IsGenerating, Converter={x:Null}}" />
+                                     Visibility="{Binding IsGenerating, Converter={StaticResource BooleanToVisibilityConverter}}" />
 
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button Style="{StaticResource SecondaryButtonStyle}" Content="⏹ Cancel" Command="{Binding CancelAiAnalysisCommand}"
                                     IsEnabled="{Binding IsGenerating}" Height="34" Padding="14,0" Margin="0,0,10,0" />
                             <Button Style="{StaticResource PrimaryButtonStyle}" Content="⚡ Run Local AI Analysis" Command="{Binding RunAiAnalysisCommand}"
-                                    IsEnabled="{Binding IsGenerating, Converter={x:Null}}" Height="34" Padding="18,0" />
+                                    Height="34" Padding="18,0" />
                         </StackPanel>
                     </Grid>
                 </StackPanel>
             </Border>
 
             <!-- AI Results Section (Visible when results generated) -->
-            <StackPanel Visibility="{Binding HasAiResults, Converter={x:Null}}" Margin="0,0,0,20">
+            <StackPanel Visibility="{Binding HasAiResults, Converter={StaticResource BooleanToVisibilityConverter}}" Margin="0,0,0,20">
 
                 <!-- Executive Summary & Hotspots Cards -->
                 <Grid Margin="0,0,0,16">

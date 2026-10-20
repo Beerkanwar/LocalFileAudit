@@ -25,9 +25,9 @@
                 <!-- Action Button: Export Reports -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button Style="{StaticResource PrimaryButtonStyle}" Content="📄  Export Audit Reports"
-                            Command="{Binding ExportReportsCommand}" IsEnabled="{Binding IsGeneratingReports, Converter={x:Null}}" Margin="0,0,10,0" />
+                            Command="{Binding ExportReportsCommand}" Margin="0,0,10,0" />
                     <Button Style="{StaticResource SecondaryButtonStyle}" Content="📂 Open Folder"
-                            Command="{Binding OpenReportDirectoryCommand}" IsEnabled="{Binding LastExportedReportPath, Converter={x:Null}}" />
+                            Command="{Binding OpenReportDirectoryCommand}" IsEnabled="{Binding HasExportedReport}" />
                 </StackPanel>
             </Grid>
 

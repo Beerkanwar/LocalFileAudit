@@ -76,9 +76,9 @@
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
                         <Button Style="{StaticResource SecondaryButtonStyle}" Content="1. Find by Size" Command="{Binding FindPotentialDuplicatesCommand}"
-                                IsEnabled="{Binding IsAnalyzing, Converter={x:Null}}" Height="32" Padding="14,0" Margin="0,0,8,0" />
+                                Height="32" Padding="14,0" Margin="0,0,8,0" />
                         <Button Style="{StaticResource PrimaryButtonStyle}" Content="2. Verify Hashes (SHA-256)" Command="{Binding VerifyHashesCommand}"
-                                IsEnabled="{Binding IsHashing, Converter={x:Null}}" Height="32" Padding="14,0" Margin="0,0,8,0" />
+                                Height="32" Padding="14,0" Margin="0,0,8,0" />
                         <Button Style="{StaticResource SecondaryButtonStyle}" Content="⏹ Cancel" Command="{Binding CancelHashingCommand}"
                                 IsEnabled="{Binding IsHashing}" Height="32" Padding="10,0" />
                     </StackPanel>
@@ -86,7 +86,7 @@
             </Border>
 
             <!-- Hashing Progress Bar -->
-            <Grid Margin="0,0,0,14" Visibility="{Binding IsHashing, Converter={x:Null}}">
+            <Grid Margin="0,0,0,14" Visibility="{Binding IsHashing, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />

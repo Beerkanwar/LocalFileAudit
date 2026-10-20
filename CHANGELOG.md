@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.2] - 2026-10-20
+
+### Fixed
+- **UI Command Enablement & Visibility (`Converter={x:Null}`):** Eliminated broken placeholder bindings across all XAML views:
+  - Enabled "Start File Inventory Scan" button at idle by removing inverted raw `IsEnabled` binding.
+  - Fixed phantom "Incomplete Scan Detected" banner by binding to `HasIncompleteScan` with `BooleanToVisibilityConverter`.
+  - Restored idle enablement to "Run Local AI Analysis", "Find by Size", "Verify Hashes", and "Export Audit Reports" buttons.
+  - Properly bound progress bars, results panels, and status messages to `BooleanToVisibilityConverter`.
+- **CSV Full Inventory Export Escaping:** Wrapped `file.Extension` in `EscapeCsv` alongside `file.FullPath` to prevent filenames containing commas from corrupting CSV column alignment.
+- **AI Chat Prompt Injection Defense:** Appended strict untrusted-input security rules to the AI chat system prompt to prevent prompt injection via candidate filenames.
+- **AI Chat Clean Failure Handling:** Prevented un-responded user messages from dangling in SQLite history when inference fails, restoring the typed message to the input box for effortless retries.
+- **Dynamic SemVer Test Assertions:** Replaced hardcoded version literals in tests with dynamic format validation to prevent test failures on release version bumps.
+- **XAML Null Converter Regression Guard:** Added automated test scanning all views to ensure `Converter={x:Null}` cannot be reintroduced.
+
+---
+
 ## [1.3.1] - 2026-10-20
 
 ### Fixed

@@ -37,6 +37,11 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
     [ObservableProperty]
     private string _lastExportedReportPath = string.Empty;
 
+    public bool HasExportedReport => !string.IsNullOrWhiteSpace(LastExportedReportPath);
+
+    partial void OnLastExportedReportPathChanged(string value)
+        => OnPropertyChanged(nameof(HasExportedReport));
+
     [ObservableProperty]
     private bool _isGeneratingReports;
 

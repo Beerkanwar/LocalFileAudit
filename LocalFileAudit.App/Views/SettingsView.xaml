@@ -16,7 +16,7 @@
                        Foreground="{StaticResource TextSecondaryBrush}" FontSize="14" Margin="0,0,0,24" />
 
             <!-- Status Banner (if any) -->
-            <Border Visibility="{Binding StatusMessage, Converter={x:Null}}" 
+            <Border Visibility="{Binding HasStatusMessage, Converter={StaticResource BooleanToVisibilityConverter}}" 
                     Background="#1E293B" BorderBrush="{StaticResource AccentPrimaryBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,18">
                 <TextBlock Text="{Binding StatusMessage}" Foreground="#E2E8F0" FontSize="13" />
             </Border>
