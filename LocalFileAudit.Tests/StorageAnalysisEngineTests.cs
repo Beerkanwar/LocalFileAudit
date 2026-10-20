@@ -117,6 +117,24 @@ public class StorageAnalysisEngineTests : IDisposable
         Assert.Equal(2, summary.LargestFiles.Count);
     }
 
+    [Fact]
+    public async Task AnalyzeScan_UnresolvableDrives_LeavesVolumeSpaceAsZero()
+    {
+        var scanId = Guid.NewGuid();
+        await _repository.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.Completed,
+            SelectedDrives = "" // empty or unresolvable
+        });
+
+        var summary = await _engine.AnalyzeScanAsync(scanId);
+
+        Assert.NotNull(summary);
+        Assert.Equal(0, summary.VolumeCapacityBytes);
+        Assert.Equal(0, summary.VolumeFreeBytes);
+    }
+
     public void Dispose()
     {
         try

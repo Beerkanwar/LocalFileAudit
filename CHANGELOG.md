@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-10-20
+
+### Fixed
+- **Storage Metrics Honesty:** Removed fallback C:\ volume capacity/free space calculation when scan roots cannot be resolved from scan run metadata, reporting 0 (unknown) to prevent showing misleading drive statistics.
+- **Cancellation Progress Jitter:** Suppressed cancellation-unwind progress increments in `ArchiveVerificationService` when cancellation has been requested.
+
+---
+
 ## [1.3.0] - 2026-10-20
 
 ### Added

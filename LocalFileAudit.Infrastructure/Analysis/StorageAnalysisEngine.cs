@@ -87,15 +87,6 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             }
         }
 
-        if (inspectedDrives.Count == 0)
-        {
-            var space = Scanning.FileAllocationHelper.GetVolumeSpace("C:\\");
-            if (space.HasValue)
-            {
-                totalCapacity = space.Value.TotalBytes;
-                totalFree = space.Value.FreeBytes;
-            }
-        }
 
         return new StorageMetricsSummary
         {

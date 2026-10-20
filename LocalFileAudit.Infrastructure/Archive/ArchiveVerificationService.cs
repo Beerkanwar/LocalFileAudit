@@ -198,8 +198,11 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
                 finally
                 {
                     semaphore.Release();
-                    var done = Interlocked.Increment(ref processedHashOperations);
-                    progress?.Report(50.0 + ((double)done / totalHashOperations) * 50.0);
+                    if (!cancellationToken.IsCancellationRequested)
+                    {
+                        var done = Interlocked.Increment(ref processedHashOperations);
+                        progress?.Report(50.0 + ((double)done / totalHashOperations) * 50.0);
+                    }
                 }
             });
 

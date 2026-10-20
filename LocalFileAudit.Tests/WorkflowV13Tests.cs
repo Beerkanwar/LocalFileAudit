@@ -335,7 +335,7 @@ public sealed class WorkflowV13Tests : IDisposable
             Status = ScanState.Completed,
             SelectedDrives = @"C:\Test",
             ConfigurationSnapshot = "{}",
-            ApplicationVersion = "1.3.0"
+            ApplicationVersion = "1.3.1"
         };
         await repo.CreateScanRunAsync(scanRun);
 
@@ -399,9 +399,9 @@ public sealed class WorkflowV13Tests : IDisposable
         var verifierType = typeof(ArchiveVerificationService);
         Assert.NotNull(verifierType);
 
-        // Verify version matches 1.3.0
+        // Verify version matches 1.3.1
         var currentVersion = AppVersion.Current;
-        Assert.Equal("1.3.0", currentVersion);
+        Assert.Equal("1.3.1", currentVersion);
     }
 
     [Fact]
