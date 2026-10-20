@@ -692,6 +692,62 @@ public sealed class SqliteScanRepository : IScanRepository
         }
     }
 
+    public async Task<string?> FindExistingFileHashAsync(string fullPath, long sizeBytes, DateTime? lastWriteTimeUtc, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fullPath);
+        if (!lastWriteTimeUtc.HasValue) return null;
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            SELECT HashValue, LastWriteTimeUtc FROM Files
+            WHERE FullPath = @FullPath
+              AND SizeBytes = @SizeBytes
+              AND HashAlgorithm = 'SHA-256'
+              AND HashValue IS NOT NULL
+              AND HashValue != ''
+            ORDER BY Id DESC
+            LIMIT 5;
+        ";
+        cmd.Parameters.AddWithValue("@FullPath", fullPath);
+        cmd.Parameters.AddWithValue("@SizeBytes", sizeBytes);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var hash = reader.GetString(0);
+            if (!reader.IsDBNull(1))
+            {
+                var timeStr = reader.GetString(1);
+                if (DateTime.TryParse(timeStr, out var parsedUtc))
+                {
+                    if (Math.Abs((parsedUtc.ToUniversalTime() - lastWriteTimeUtc.Value.ToUniversalTime()).TotalSeconds) <= 2)
+                    {
+                        return hash;
+                    }
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public async Task<FileRecord?> GetFileByIdAsync(long fileId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT * FROM Files WHERE Id = @Id LIMIT 1;";
+        cmd.Parameters.AddWithValue("@Id", fileId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return MapFileRecord(reader);
+        }
+
+        return null;
+    }
+
     private static FileRecord MapFileRecord(SqliteDataReader reader)
     {
         return new FileRecord

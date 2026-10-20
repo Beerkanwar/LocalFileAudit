@@ -19,11 +19,16 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private int _maxWorkers;
     private int _batchSize;
     private bool _hashingEnabled;
+    private bool _completionNotificationEnabled = true;
+    private bool _completionSoundEnabled = true;
     private int _largeFileThresholdMb;
     private int _oldFileAgeDays;
     private bool _aiEnabled;
     private string _aiEndpoint = string.Empty;
     private bool _requireLocalEndpoint;
+    private string _aiModelName = "qwen2.5:7b";
+    private int _aiTimeoutSeconds = 60;
+    private int _aiMaxPayloadCandidates = 50;
     private bool _redactFilePaths;
     private int _logRetainDays;
     private string _statusMessage = string.Empty;
@@ -85,6 +90,18 @@ public sealed partial class SettingsViewModel : ViewModelBase
         set => SetProperty(ref _hashingEnabled, value);
     }
 
+    public bool CompletionNotificationEnabled
+    {
+        get => _completionNotificationEnabled;
+        set => SetProperty(ref _completionNotificationEnabled, value);
+    }
+
+    public bool CompletionSoundEnabled
+    {
+        get => _completionSoundEnabled;
+        set => SetProperty(ref _completionSoundEnabled, value);
+    }
+
     public int LargeFileThresholdMb
     {
         get => _largeFileThresholdMb;
@@ -113,6 +130,24 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         get => _requireLocalEndpoint;
         set => SetProperty(ref _requireLocalEndpoint, value);
+    }
+
+    public string AiModelName
+    {
+        get => _aiModelName;
+        set => SetProperty(ref _aiModelName, value);
+    }
+
+    public int AiTimeoutSeconds
+    {
+        get => _aiTimeoutSeconds;
+        set => SetProperty(ref _aiTimeoutSeconds, value);
+    }
+
+    public int AiMaxPayloadCandidates
+    {
+        get => _aiMaxPayloadCandidates;
+        set => SetProperty(ref _aiMaxPayloadCandidates, value);
     }
 
     public bool RedactFilePaths
@@ -154,6 +189,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         MaxWorkers = cfg.Scanning.MaxConcurrentDirectoryWorkers;
         BatchSize = cfg.Scanning.DatabaseBatchSize;
         HashingEnabled = cfg.Scanning.HashingEnabledByDefault;
+        CompletionNotificationEnabled = cfg.Scanning.CompletionNotificationEnabled;
+        CompletionSoundEnabled = cfg.Scanning.CompletionSoundEnabled;
 
         LargeFileThresholdMb = (int)(cfg.Analysis.LargeFileThresholdBytes / (1024 * 1024));
         OldFileAgeDays = cfg.Analysis.OldFileAgeDays;
@@ -161,6 +198,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         AiEnabled = cfg.AI.Enabled;
         AiEndpoint = cfg.AI.Endpoint;
         RequireLocalEndpoint = cfg.AI.RequireLocalEndpoint;
+        AiModelName = string.IsNullOrWhiteSpace(cfg.AI.ModelName) ? "qwen2.5:7b" : cfg.AI.ModelName;
+        AiTimeoutSeconds = cfg.AI.TimeoutSeconds > 0 ? cfg.AI.TimeoutSeconds : 60;
+        AiMaxPayloadCandidates = cfg.AI.MaxPayloadCandidates > 0 ? cfg.AI.MaxPayloadCandidates : 50;
 
         RedactFilePaths = cfg.Logging.RedactFilePaths;
         LogRetainDays = cfg.Logging.RetainDays;
@@ -180,7 +220,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
                     LowImpactMode = LowImpactMode,
                     MaxConcurrentDirectoryWorkers = MaxWorkers,
                     DatabaseBatchSize = BatchSize,
-                    HashingEnabledByDefault = HashingEnabled
+                    HashingEnabledByDefault = HashingEnabled,
+                    CompletionNotificationEnabled = CompletionNotificationEnabled,
+                    CompletionSoundEnabled = CompletionSoundEnabled
                 },
                 Analysis = new AnalysisConfiguration
                 {
@@ -193,8 +235,10 @@ public sealed partial class SettingsViewModel : ViewModelBase
                     Enabled = AiEnabled,
                     Endpoint = AiEndpoint,
                     RequireLocalEndpoint = RequireLocalEndpoint,
-                    SendDocumentContents = false,
-                    TimeoutSeconds = 60
+                    ModelName = string.IsNullOrWhiteSpace(AiModelName) ? "qwen2.5:7b" : AiModelName.Trim(),
+                    TimeoutSeconds = AiTimeoutSeconds,
+                    MaxPayloadCandidates = AiMaxPayloadCandidates,
+                    SendDocumentContents = false
                 },
                 Safety = new SafetyConfiguration
                 {
@@ -233,6 +277,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         MaxWorkers = defaults.Scanning.MaxConcurrentDirectoryWorkers;
         BatchSize = defaults.Scanning.DatabaseBatchSize;
         HashingEnabled = defaults.Scanning.HashingEnabledByDefault;
+        CompletionNotificationEnabled = defaults.Scanning.CompletionNotificationEnabled;
+        CompletionSoundEnabled = defaults.Scanning.CompletionSoundEnabled;
 
         LargeFileThresholdMb = (int)(defaults.Analysis.LargeFileThresholdBytes / (1024 * 1024));
         OldFileAgeDays = defaults.Analysis.OldFileAgeDays;
@@ -240,6 +286,9 @@ public sealed partial class SettingsViewModel : ViewModelBase
         AiEnabled = defaults.AI.Enabled;
         AiEndpoint = defaults.AI.Endpoint;
         RequireLocalEndpoint = defaults.AI.RequireLocalEndpoint;
+        AiModelName = defaults.AI.ModelName;
+        AiTimeoutSeconds = defaults.AI.TimeoutSeconds;
+        AiMaxPayloadCandidates = defaults.AI.MaxPayloadCandidates;
 
         RedactFilePaths = defaults.Logging.RedactFilePaths;
         LogRetainDays = defaults.Logging.RetainDays;

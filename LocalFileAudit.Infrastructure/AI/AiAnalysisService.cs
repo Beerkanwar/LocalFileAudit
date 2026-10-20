@@ -46,9 +46,11 @@ public sealed class AiAnalysisService : IAiAnalysisService
         var payload = BuildInferencePayload(summary, redactPaths);
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
-
     private object BuildInferencePayload(StorageMetricsSummary summary, bool redactPaths)
     {
+        var maxCandidates = _configurationService.Current.AI.MaxPayloadCandidates;
+        if (maxCandidates <= 0) maxCandidates = 50;
+
         return new
         {
             ScanOverview = new
@@ -71,7 +73,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
                 Path = redactPaths ? PathRedactor.Redact(d.DirectoryPath) : d.DirectoryPath,
                 DirectSizeMb = Math.Round(d.DirectSizeBytes / (1024.0 * 1024.0), 2)
             }),
-            CandidatesForReview = summary.ReviewCandidates.Take(25).Select(c => new
+            CandidatesForReview = summary.ReviewCandidates.Take(maxCandidates).Select(c => new
             {
                 CandidateId = c.FileRecordId,
                 FileName = c.FileName,
@@ -330,7 +332,94 @@ You MUST reply with a single, valid JSON object matching this exact structure:
         await File.WriteAllTextAsync(tempPath, sb.ToString(), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
         File.Move(tempPath, reportPath, overwrite: true);
 
+        // Feature S4: Automatically generate AI-Review-Table.csv and AI-Review-Table.md
+        try
+        {
+            await ExportAiReviewTableAsync(scanRunId, model, response, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to auto-generate AI review tables during report save.");
+        }
+
         return reportPath;
+    }
+
+    public async Task<(string CsvPath, string MdPath)> ExportAiReviewTableAsync(
+        Guid scanRunId,
+        string model,
+        AiAnalysisResponse response,
+        CancellationToken cancellationToken = default)
+    {
+        var reportsDir = _environment.ReportsDirectory;
+        Directory.CreateDirectory(reportsDir);
+
+        var existingDirs = Directory.GetDirectories(reportsDir, $"scan-{scanRunId:N}*");
+        var targetDir = existingDirs.FirstOrDefault() ?? Path.Combine(reportsDir, $"scan-{scanRunId:N}-{DateTime.UtcNow:yyyyMMdd-HHmmss}");
+        Directory.CreateDirectory(targetDir);
+
+        var csvPath = Path.Combine(targetDir, "AI-Review-Table.csv");
+        var mdPath = Path.Combine(targetDir, "AI-Review-Table.md");
+
+        var csvTemp = csvPath + $".{Guid.NewGuid():N}.tmp";
+        var mdTemp = mdPath + $".{Guid.NewGuid():N}.tmp";
+
+        // Build CSV
+        var csvSb = new StringBuilder();
+        csvSb.AppendLine("CandidateId,FileName,SuggestedCategory,ConfidenceLevel,Evidence,Explanation,RecommendedVerificationStep");
+        foreach (var r in response.Recommendations)
+        {
+            csvSb.AppendLine($"{r.CandidateId},{EscapeCsv(r.FileName)},{EscapeCsv(r.SuggestedCategory)},{EscapeCsv(r.ConfidenceLevel)},{EscapeCsv(r.Evidence)},{EscapeCsv(r.Explanation)},{EscapeCsv(r.RecommendedVerificationStep)}");
+        }
+        await File.WriteAllTextAsync(csvTemp, csvSb.ToString(), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        File.Move(csvTemp, csvPath, overwrite: true);
+
+        // Build Markdown Table
+        var mdSb = new StringBuilder();
+        mdSb.AppendLine("# LocalFileAudit — AI Recommendations Table");
+        mdSb.AppendLine();
+        mdSb.AppendLine($"> Generated: {response.GeneratedAtUtc:yyyy-MM-dd HH:mm:ss} UTC | Model: {model} | Scan ID: {scanRunId}");
+        mdSb.AppendLine();
+        mdSb.AppendLine("| Candidate ID | File Name | Suggested Category | Confidence | Evidence | Explanation | Verification Step |");
+        mdSb.AppendLine("|---|---|---|---|---|---|---|");
+        foreach (var r in response.Recommendations)
+        {
+            mdSb.AppendLine($"| {r.CandidateId} | `{r.FileName}` | **{r.SuggestedCategory}** | {r.ConfidenceLevel} | {EscapeMarkdown(r.Evidence)} | {EscapeMarkdown(r.Explanation)} | {EscapeMarkdown(r.RecommendedVerificationStep)} |");
+        }
+        mdSb.AppendLine();
+        mdSb.AppendLine("## Prioritized Review Plan");
+        foreach (var p in response.PrioritizedReviewPlan)
+        {
+            mdSb.AppendLine($"- {p}");
+        }
+        mdSb.AppendLine();
+        mdSb.AppendLine("## Safety Warnings");
+        foreach (var w in response.SafetyWarnings)
+        {
+            mdSb.AppendLine($"- ⚠ {w}");
+        }
+
+        await File.WriteAllTextAsync(mdTemp, mdSb.ToString(), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        File.Move(mdTemp, mdPath, overwrite: true);
+
+        _logger.LogInformation("Successfully exported AI review tables to {CsvPath} and {MdPath}", csvPath, mdPath);
+        return (csvPath, mdPath);
+    }
+
+    private static string EscapeCsv(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+        {
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        }
+        return value;
+    }
+
+    private static string EscapeMarkdown(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value.Replace("|", "\\|").Replace("*", "\\*").Replace("_", "\\_");
     }
 
     public async Task<IReadOnlyList<AiReportRecord>> GetHistoryAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default)

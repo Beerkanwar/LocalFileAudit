@@ -391,4 +391,36 @@ public sealed partial class InventoryViewModel : ViewModelBase
             StatusMessage = $"Unable to open explorer: {ex.Message}";
         }
     }
+
+    public async Task SelectAndInspectFileByIdAsync(long fileId, Guid? preferredScanId = null)
+    {
+        try
+        {
+            var file = await _repository.GetFileByIdAsync(fileId);
+            if (file == null)
+            {
+                StatusMessage = $"File record with ID {fileId} was not found in database.";
+                return;
+            }
+
+            var scanId = file.ScanRunId;
+            if (SelectedScanRun == null || SelectedScanRun.Id != scanId)
+            {
+                await LoadInitialDataAsync(scanId);
+            }
+
+            SearchText = file.FileName;
+            CurrentPage = 1;
+            await ExecuteSearchAsync();
+
+            var matched = Files.FirstOrDefault(f => f.Id == fileId) ?? file;
+            SelectedFile = matched;
+            StatusMessage = $"Selected and inspected candidate: {file.FileName} (ID: {fileId})";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to inspect candidate file ID {FileId}", fileId);
+            StatusMessage = $"Navigation to candidate failed: {ex.Message}";
+        }
+    }
 }

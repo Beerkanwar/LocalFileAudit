@@ -28,6 +28,7 @@ public sealed partial class ScansViewModel : ViewModelBase
     private readonly IScanEngine _scanEngine;
     private readonly IScanRepository _repository;
     private readonly IConfigurationService _configurationService;
+    private readonly INotificationService _notificationService;
     private readonly ILogger<ScansViewModel> _logger;
 
     private CancellationTokenSource? _scanCts;
@@ -103,11 +104,13 @@ public sealed partial class ScansViewModel : ViewModelBase
         IScanEngine scanEngine,
         IScanRepository repository,
         IConfigurationService configurationService,
+        INotificationService notificationService,
         ILogger<ScansViewModel> logger)
     {
         _scanEngine = scanEngine ?? throw new ArgumentNullException(nameof(scanEngine));
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
+        _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         Title = "Scans";
@@ -200,9 +203,22 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             var run = await _scanEngine.StartScanAsync(target, _scanCts.Token, progress);
-            ScanStatusText = run.Status == ScanState.Completed
-                ? $"Scan completed: {run.FilesDiscovered:N0} files inventoried in {ElapsedTime:hh\\:mm\\:ss}."
-                : $"Scan {run.Status}: {run.FilesDiscovered:N0} files recorded.";
+            if (run.Status == ScanState.Completed)
+            {
+                ScanStatusText = $"Scan completed: {run.FilesDiscovered:N0} files inventoried in {ElapsedTime:hh\\:mm\\:ss}.";
+                _notificationService.NotifyScanCompleted(
+                    "Scan Complete",
+                    $"{run.FilesDiscovered:N0} files inventoried safely in {ElapsedTime:mm\\:ss}.",
+                    isSuccess: true);
+            }
+            else
+            {
+                ScanStatusText = $"Scan {run.Status}: {run.FilesDiscovered:N0} files recorded.";
+                _notificationService.NotifyScanCompleted(
+                    $"Scan {run.Status}",
+                    $"{run.FilesDiscovered:N0} files recorded before interruption.",
+                    isSuccess: false);
+            }
         }
         catch (OperationCanceledException)
         {

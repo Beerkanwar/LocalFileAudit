@@ -61,6 +61,11 @@ public sealed partial class MainViewModel : ObservableObject
             await StorageAnalysis.LoadAnalysisAsync(scanId);
             Navigate("StorageAnalysis");
         };
+        AiReports.OnNavigateToInventoryWithCandidate = async (candidateId, scanId) =>
+        {
+            Navigate("Inventory");
+            await Inventory.SelectAndInspectFileByIdAsync(candidateId, scanId);
+        };
     }
 
     [RelayCommand]

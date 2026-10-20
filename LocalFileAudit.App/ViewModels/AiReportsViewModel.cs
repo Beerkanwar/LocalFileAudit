@@ -19,6 +19,9 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     private readonly ILogger<AiReportsViewModel> _logger;
 
     private CancellationTokenSource? _aiCts;
+    private AiAnalysisResponse? _lastResponse;
+
+    public Action<long, Guid?>? OnNavigateToInventoryWithCandidate { get; set; }
 
     [ObservableProperty]
     private bool _isAiEnabled;
@@ -228,8 +231,9 @@ public sealed partial class AiReportsViewModel : ViewModelBase
                 SafetyWarnings.Add(w);
             }
 
+            _lastResponse = response;
             HasAiResults = true;
-            StatusMessage = $"AI decision support complete. {Recommendations.Count} recommendations generated and saved to AI-Review.md.";
+            StatusMessage = $"AI decision support complete. {Recommendations.Count} recommendations generated and saved to AI-Review.md and AI-Review-Table.csv/.md.";
             await RefreshHistoryAsync();
         }
         catch (OperationCanceledException)
@@ -293,6 +297,38 @@ public sealed partial class AiReportsViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to open report file {Path}", reportPath);
+        }
+    }
+
+    [RelayCommand]
+    public void InspectCandidate(long candidateId)
+    {
+        OnNavigateToInventoryWithCandidate?.Invoke(candidateId, SelectedScan?.Id);
+    }
+
+    [RelayCommand]
+    public async Task ExportAiReviewTableAsync()
+    {
+        if (SelectedScan == null || _lastResponse == null)
+        {
+            StatusMessage = "No active AI analysis results available to export. Run AI analysis first.";
+            return;
+        }
+
+        try
+        {
+            var (csvPath, mdPath) = await _aiService.ExportAiReviewTableAsync(
+                SelectedScan.Id,
+                SelectedModel ?? "local-model",
+                _lastResponse,
+                CancellationToken.None);
+
+            StatusMessage = $"AI Review Tables exported: {Path.GetFileName(csvPath)} & {Path.GetFileName(mdPath)}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Failed to export AI tables: {ex.Message}";
+            _logger.LogError(ex, "Failed to export AI review tables from UI");
         }
     }
 }

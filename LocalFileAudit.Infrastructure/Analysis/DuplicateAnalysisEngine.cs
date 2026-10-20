@@ -126,12 +126,25 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
             // Compute hash if not already cached
             if (string.IsNullOrEmpty(hash) || file.HashAlgorithm != "SHA-256")
             {
-                hash = await ComputeSha256SafeAsync(file.FullPath, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(hash))
+                // Feature S3: Check if any previous run stored a hash for the same (FullPath, SizeBytes, LastWriteTimeUtc)
+                var existingHash = await _repository.FindExistingFileHashAsync(file.FullPath, file.SizeBytes, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(existingHash))
                 {
+                    hash = existingHash;
                     file.HashAlgorithm = "SHA-256";
                     file.HashValue = hash;
                     await _repository.UpdateFileHashAsync(file.Id, "SHA-256", hash, cancellationToken).ConfigureAwait(false);
+                    _logger.LogDebug("Reused existing SHA-256 hash for {FullPath} from prior scan run.", file.FullPath);
+                }
+                else
+                {
+                    hash = await ComputeSha256SafeAsync(file.FullPath, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(hash))
+                    {
+                        file.HashAlgorithm = "SHA-256";
+                        file.HashValue = hash;
+                        await _repository.UpdateFileHashAsync(file.Id, "SHA-256", hash, cancellationToken).ConfigureAwait(false);
+                    }
                 }
             }
 

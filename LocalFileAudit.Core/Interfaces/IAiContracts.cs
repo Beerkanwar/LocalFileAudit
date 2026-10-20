@@ -22,5 +22,6 @@ public interface IAiAnalysisService
     string BuildPromptPreview(StorageMetricsSummary summary, bool redactPaths);
     Task<AiAnalysisResponse> RunAnalysisAsync(Guid scanRunId, string model, bool redactPaths, CancellationToken cancellationToken = default);
     Task<string> SaveAiReportAsync(Guid scanRunId, string model, AiAnalysisResponse response, CancellationToken cancellationToken = default);
+    Task<(string CsvPath, string MdPath)> ExportAiReviewTableAsync(Guid scanRunId, string model, AiAnalysisResponse response, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AiReportRecord>> GetHistoryAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default);
 }

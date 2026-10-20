@@ -90,6 +90,11 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("AI.TimeoutSeconds must be between 1 and 600 seconds.");
         }
 
+        if (config.AI.MaxPayloadCandidates < 1 || config.AI.MaxPayloadCandidates > 1000)
+        {
+            errors.Add("AI.MaxPayloadCandidates must be between 1 and 1000.");
+        }
+
         return errors.Count == 0 ? ValidationResult.Success() : ValidationResult.Failure(errors);
     }
 }

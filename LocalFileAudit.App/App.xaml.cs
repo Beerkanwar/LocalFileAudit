@@ -31,6 +31,9 @@ public partial class App : Application
                     // Infrastructure services (AppEnvironment, ConfigurationValidator, ConfigurationService)
                     services.AddInfrastructureServices();
 
+                    // Notification service
+                    services.AddSingleton<INotificationService, LocalFileAudit.App.Services.WpfNotificationService>();
+
                     // ViewModels
                     services.AddSingleton<DashboardViewModel>();
                     services.AddSingleton<ScansViewModel>();

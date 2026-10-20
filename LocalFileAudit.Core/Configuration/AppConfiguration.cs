@@ -23,6 +23,8 @@ public sealed class ScanningConfiguration
     public int MaxConcurrentDirectoryWorkers { get; set; } = 2;
     public int DatabaseBatchSize { get; set; } = 500;
     public bool HashingEnabledByDefault { get; set; } = false;
+    public bool CompletionNotificationEnabled { get; set; } = true;
+    public bool CompletionSoundEnabled { get; set; } = true;
 }
 
 /// <summary>
@@ -45,6 +47,8 @@ public sealed class AiConfiguration
     public bool RequireLocalEndpoint { get; set; } = true;
     public bool SendDocumentContents { get; set; } = false;
     public int TimeoutSeconds { get; set; } = 60;
+    public string ModelName { get; set; } = "qwen2.5:7b";
+    public int MaxPayloadCandidates { get; set; } = 50;
 }
 
 /// <summary>

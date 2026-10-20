@@ -42,6 +42,8 @@ public interface IScanRepository
     Task<IReadOnlyList<AiReportRecord>> GetAiReportsAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default);
 
     Task UpdateFileHashAsync(long fileId, string hashAlgorithm, string hashValue, CancellationToken cancellationToken = default);
+    Task<string?> FindExistingFileHashAsync(string fullPath, long sizeBytes, DateTime? lastWriteTimeUtc, CancellationToken cancellationToken = default);
+    Task<FileRecord?> GetFileByIdAsync(long fileId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
