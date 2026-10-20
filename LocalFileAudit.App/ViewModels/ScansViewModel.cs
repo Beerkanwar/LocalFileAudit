@@ -141,7 +141,6 @@ public sealed partial class ScansViewModel : ViewModelBase
         Title = "Scans";
 
         LoadDrives();
-        _ = RefreshScansAsync();
     }
 
     private void LoadDrives()

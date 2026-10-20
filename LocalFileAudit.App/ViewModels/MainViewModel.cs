@@ -164,11 +164,17 @@ public sealed partial class MainViewModel : ObservableObject
                 _ = Scans.RefreshScansAsync();
                 break;
             case "Inventory":
-                _ = Inventory.ExecuteSearchAsync();
+                _ = Inventory.EnsureInitializedAsync();
                 break;
             case "StorageAnalysis":
                 _ = StorageAnalysis.EnsureInitializedAsync();
                 _ = StorageAnalysis.RefreshGeneratedReportsAsync();
+                break;
+            case "DuplicateAnalysis":
+                _ = DuplicateAnalysis.EnsureInitializedAsync();
+                break;
+            case "AiReports":
+                _ = AiReports.EnsureInitializedAsync();
                 break;
             case "CompareRuns":
                 _ = CompareRuns.LoadAvailableRunsAsync();

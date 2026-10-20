@@ -60,7 +60,6 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         Title = "Archive Plan";
-        _ = LoadPlanAsync();
     }
 
     public async Task LoadPlanAsync()

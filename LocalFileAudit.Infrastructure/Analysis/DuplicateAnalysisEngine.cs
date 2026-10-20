@@ -33,7 +33,8 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
         {
             DataSource = _initializer.DatabasePath,
             Mode = SqliteOpenMode.ReadOnly,
-            Cache = SqliteCacheMode.Shared
+            Cache = SqliteCacheMode.Private,
+            DefaultTimeout = 30
         }.ToString();
     }
 
@@ -41,6 +42,9 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
     {
         var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA busy_timeout = 30000;";
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return conn;
     }
 

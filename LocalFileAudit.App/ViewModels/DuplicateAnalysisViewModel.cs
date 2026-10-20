@@ -80,7 +80,15 @@ public sealed partial class DuplicateAnalysisViewModel : ViewModelBase
         Title = "Duplicate Analysis";
 
         InitSizeOptions();
-        _ = LoadScansAsync();
+    }
+
+    private bool _isInitialized;
+
+    public async Task EnsureInitializedAsync()
+    {
+        if (_isInitialized) return;
+        _isInitialized = true;
+        await LoadScansAsync();
     }
 
     private void InitSizeOptions()

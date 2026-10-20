@@ -31,7 +31,8 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
         {
             DataSource = _databasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared
+            Cache = SqliteCacheMode.Private,
+            DefaultTimeout = 60
         }.ToString();
 
         _logger.LogInformation("Initializing SQLite inventory database at {Path}", _databasePath);
@@ -43,6 +44,7 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
         await using (var pragmaCmd = connection.CreateCommand())
         {
             pragmaCmd.CommandText = @"
+                PRAGMA busy_timeout = 60000;
                 PRAGMA journal_mode = WAL;
                 PRAGMA synchronous = NORMAL;
                 PRAGMA foreign_keys = ON;
@@ -144,7 +146,6 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             );
 
             -- Indexes for high performance querying
-            DROP INDEX IF EXISTS idx_files_scan_path; -- UNIQUE(ScanRunId, FullPath) already provides this index
             CREATE INDEX IF NOT EXISTS idx_files_scan_parent ON Files(ScanRunId, ParentPath);
             CREATE INDEX IF NOT EXISTS idx_files_scan_ext ON Files(ScanRunId, Extension);
             CREATE INDEX IF NOT EXISTS idx_files_scan_size ON Files(ScanRunId, SizeBytes);
@@ -161,11 +162,11 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
         cmd.CommandText = ddl;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
-        // Checkpoint WAL frames into main DB and update query planner statistics
+        // Checkpoint WAL frames into main DB non-blockingly and update query planner statistics
         await using (var cpCmd = connection.CreateCommand())
         {
             cpCmd.CommandText = @"
-                PRAGMA wal_checkpoint(TRUNCATE);
+                PRAGMA wal_checkpoint(PASSIVE);
                 PRAGMA optimize;
             ";
             await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

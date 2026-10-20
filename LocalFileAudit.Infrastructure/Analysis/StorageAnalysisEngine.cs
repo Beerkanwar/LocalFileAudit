@@ -32,15 +32,11 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
     private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
-        var conn = new SqliteConnection($"Data Source={_initializer.DatabasePath};Mode=ReadOnly;Cache=Shared");
+        var conn = new SqliteConnection($"Data Source={_initializer.DatabasePath};Mode=ReadOnly;Cache=Private;Default Timeout=30;");
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
-        return conn;
-    }
-
-    private async Task<SqliteConnection> OpenWriteConnectionAsync(CancellationToken cancellationToken)
-    {
-        var conn = new SqliteConnection($"Data Source={_initializer.DatabasePath};Mode=ReadWrite;Cache=Shared");
-        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA busy_timeout = 30000;";
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return conn;
     }
 
@@ -237,138 +233,54 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
     public async Task<IReadOnlyList<CandidateClassification>> ClassifyCandidatesAsync(Guid scanRunId, CancellationToken cancellationToken = default)
     {
-        var candidates = new List<CandidateClassification>();
-
-        await using (var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
+        // 1. Check if AnalysisResults table already contains cached classifications for this scan run
+        var cached = await _repository.GetCachedAnalysisResultsAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+        if (cached.Count > 0)
         {
-            // 1. Check if AnalysisResults table already contains cached classifications for this scan run
-            await using (var checkCmd = conn.CreateCommand())
+            return cached;
+        }
+
+        // 2. Cache miss: evaluate rules from Files
+        var candidates = new List<CandidateClassification>();
+        var config = _configurationService.Current;
+        await using (var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT * FROM Files
+                WHERE ScanRunId = @ScanRunId
+                  AND (
+                      SizeBytes >= @LargeThreshold 
+                      OR Extension IN ('.zip', '.rar', '.7z', '.tar', '.gz', '.iso', '.vhd', '.vhdx', '.mp4', '.mkv', '.avi', '.mov', '.tmp', '.bak', '.old', '.dmp', '.log')
+                      OR FullPath LIKE '%\Downloads\%'
+                  )
+                ORDER BY SizeBytes DESC
+                LIMIT 1000;
+            ";
+            cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+            cmd.Parameters.AddWithValue("@LargeThreshold", config.Analysis.LargeFileThresholdBytes / 2);
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                checkCmd.CommandText = "SELECT COUNT(1) FROM AnalysisResults WHERE ScanRunId = @ScanRunId;";
-                checkCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
-                var countObj = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-                var count = countObj is long l ? l : Convert.ToInt64(countObj ?? 0L);
+                var file = MapFileRecord(reader);
+                var classification = CandidateRuleEvaluator.Classify(file, config);
 
-                if (count > 0)
+                if (classification.Category != CandidateCategory.KeepOnLaptop && classification.Category != CandidateCategory.Unknown)
                 {
-                    await using var loadCmd = conn.CreateCommand();
-                    loadCmd.CommandText = @"
-                        SELECT ar.FileId, ar.Category, ar.RuleId, ar.Priority, ar.Confidence, ar.Explanation,
-                               f.FullPath, f.FileName, f.Extension, f.SizeBytes, f.LastWriteTimeUtc
-                        FROM AnalysisResults ar
-                        LEFT JOIN Files f ON f.Id = ar.FileId
-                        WHERE ar.ScanRunId = @ScanRunId
-                        ORDER BY ar.Priority ASC, f.SizeBytes DESC;
-                    ";
-                    loadCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
-                    await using var reader = await loadCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                    while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                    {
-                        var fileId = reader.IsDBNull(0) ? 0L : reader.GetInt64(0);
-                        var categoryStr = reader.GetString(1);
-                        var ruleId = reader.GetString(2);
-                        var priority = reader.GetInt32(3);
-                        var confidence = reader.GetDouble(4);
-                        var explanation = reader.GetString(5);
-                        var fullPath = reader.IsDBNull(6) ? string.Empty : reader.GetString(6);
-                        var fileName = reader.IsDBNull(7) ? string.Empty : reader.GetString(7);
-                        var extension = reader.IsDBNull(8) ? string.Empty : reader.GetString(8);
-                        var sizeBytes = reader.IsDBNull(9) ? 0L : reader.GetInt64(9);
-                        var lastWrite = reader.IsDBNull(10) ? (DateTime?)null : DateTime.Parse(reader.GetString(10));
-
-                        Enum.TryParse<CandidateCategory>(categoryStr, out var cat);
-
-                        candidates.Add(new CandidateClassification
-                        {
-                            FileRecordId = fileId,
-                            ScanRunId = scanRunId,
-                            Category = cat,
-                            RuleId = ruleId,
-                            Priority = priority,
-                            Confidence = confidence,
-                            Explanation = explanation,
-                            FullPath = fullPath,
-                            FileName = fileName,
-                            Extension = extension,
-                            SizeBytes = sizeBytes,
-                            LastWriteTimeUtc = lastWrite
-                        });
-                    }
-
-                    return candidates;
-                }
-            }
-
-            // 2. Cache miss: evaluate rules from Files
-            var config = _configurationService.Current;
-            await using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = @"
-                    SELECT * FROM Files
-                    WHERE ScanRunId = @ScanRunId
-                      AND (
-                          SizeBytes >= @LargeThreshold 
-                          OR Extension IN ('.zip', '.rar', '.7z', '.tar', '.gz', '.iso', '.vhd', '.vhdx', '.mp4', '.mkv', '.avi', '.mov', '.tmp', '.bak', '.old', '.dmp', '.log')
-                          OR FullPath LIKE '%\Downloads\%'
-                      )
-                    ORDER BY SizeBytes DESC
-                    LIMIT 1000;
-                ";
-                cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
-                cmd.Parameters.AddWithValue("@LargeThreshold", config.Analysis.LargeFileThresholdBytes / 2);
-
-                await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    var file = MapFileRecord(reader);
-                    var classification = CandidateRuleEvaluator.Classify(file, config);
-
-                    if (classification.Category != CandidateCategory.KeepOnLaptop && classification.Category != CandidateCategory.Unknown)
-                    {
-                        candidates.Add(classification);
-                    }
+                    candidates.Add(classification);
                 }
             }
         }
 
         var sorted = candidates.OrderBy(c => c.Priority).ThenByDescending(c => c.SizeBytes).ToList();
 
-        // 3. Persist classified results to AnalysisResults table
+        // 3. Persist classified results to AnalysisResults table via repository
         if (sorted.Count > 0)
         {
             try
             {
-                await using var writeConn = await OpenWriteConnectionAsync(cancellationToken).ConfigureAwait(false);
-                await using var tx = await writeConn.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-                await using var insCmd = writeConn.CreateCommand();
-                insCmd.Transaction = (SqliteTransaction)tx;
-                insCmd.CommandText = @"
-                    INSERT INTO AnalysisResults (ScanRunId, FileId, Category, RuleId, Priority, Confidence, Explanation, AnalysisVersion)
-                    VALUES (@ScanRunId, @FileId, @Category, @RuleId, @Priority, @Confidence, @Explanation, @AnalysisVersion);
-                ";
-                var pScan = insCmd.Parameters.Add("@ScanRunId", SqliteType.Text);
-                var pFile = insCmd.Parameters.Add("@FileId", SqliteType.Integer);
-                var pCat = insCmd.Parameters.Add("@Category", SqliteType.Text);
-                var pRule = insCmd.Parameters.Add("@RuleId", SqliteType.Text);
-                var pPrio = insCmd.Parameters.Add("@Priority", SqliteType.Integer);
-                var pConf = insCmd.Parameters.Add("@Confidence", SqliteType.Real);
-                var pExp = insCmd.Parameters.Add("@Explanation", SqliteType.Text);
-                var pVer = insCmd.Parameters.Add("@AnalysisVersion", SqliteType.Text);
-
-                foreach (var c in sorted)
-                {
-                    pScan.Value = scanRunId.ToString();
-                    pFile.Value = c.FileRecordId > 0 ? c.FileRecordId : (object)DBNull.Value;
-                    pCat.Value = c.Category.ToString();
-                    pRule.Value = c.RuleId;
-                    pPrio.Value = c.Priority;
-                    pConf.Value = c.Confidence;
-                    pExp.Value = c.Explanation;
-                    pVer.Value = "1.3";
-                    await insCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-                }
-
-                await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+                await _repository.SaveAnalysisResultsAsync(scanRunId, sorted, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

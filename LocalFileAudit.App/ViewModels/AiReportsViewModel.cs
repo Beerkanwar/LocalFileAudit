@@ -100,7 +100,15 @@ public sealed partial class AiReportsViewModel : ViewModelBase
         Title = "AI Reports";
 
         LoadConfiguration();
-        _ = InitializeAsync();
+    }
+
+    private bool _isInitialized;
+
+    public async Task EnsureInitializedAsync()
+    {
+        if (_isInitialized) return;
+        _isInitialized = true;
+        await InitializeAsync();
     }
 
     private void LoadConfiguration()

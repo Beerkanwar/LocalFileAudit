@@ -25,7 +25,8 @@ public sealed class SqliteScanRepository : IScanRepository
         {
             DataSource = _initializer.DatabasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Cache = SqliteCacheMode.Shared
+            Cache = SqliteCacheMode.Private,
+            DefaultTimeout = 30
         }.ToString();
     }
 
@@ -33,6 +34,9 @@ public sealed class SqliteScanRepository : IScanRepository
     {
         var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA busy_timeout = 30000; PRAGMA foreign_keys = ON;";
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return conn;
     }
 
@@ -613,7 +617,9 @@ public sealed class SqliteScanRepository : IScanRepository
             var destConnString = new SqliteConnectionStringBuilder
             {
                 DataSource = destinationPath,
-                Mode = SqliteOpenMode.ReadWriteCreate
+                Mode = SqliteOpenMode.ReadWriteCreate,
+                Cache = SqliteCacheMode.Private,
+                DefaultTimeout = 30
             }.ToString();
 
             await using var destConn = new SqliteConnection(destConnString);
@@ -1061,5 +1067,101 @@ public sealed class SqliteScanRepository : IScanRepository
             LastCheckpointUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("LastCheckpointUtc"))),
             LastError = reader.IsDBNull(reader.GetOrdinal("LastError")) ? null : reader.GetString(reader.GetOrdinal("LastError"))
         };
+    }
+
+    public async Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        var list = new List<CandidateClassification>();
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = @"
+            SELECT ar.FileId, ar.Category, ar.RuleId, ar.Priority, ar.Confidence, ar.Explanation,
+                   f.FullPath, f.FileName, f.Extension, f.SizeBytes, f.LastWriteTimeUtc
+            FROM AnalysisResults ar
+            LEFT JOIN Files f ON f.Id = ar.FileId
+            WHERE ar.ScanRunId = @ScanRunId
+            ORDER BY ar.Priority ASC, f.SizeBytes DESC;
+        ";
+        cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var fileId = reader.IsDBNull(0) ? 0L : reader.GetInt64(0);
+            var categoryStr = reader.GetString(1);
+            var ruleId = reader.GetString(2);
+            var priority = reader.GetInt32(3);
+            var confidence = reader.GetDouble(4);
+            var explanation = reader.GetString(5);
+            var fullPath = reader.IsDBNull(6) ? string.Empty : reader.GetString(6);
+            var fileName = reader.IsDBNull(7) ? string.Empty : reader.GetString(7);
+            var extension = reader.IsDBNull(8) ? string.Empty : reader.GetString(8);
+            var sizeBytes = reader.IsDBNull(9) ? 0L : reader.GetInt64(9);
+            var lastWrite = reader.IsDBNull(10) ? (DateTime?)null : DateTime.Parse(reader.GetString(10));
+
+            Enum.TryParse<CandidateCategory>(categoryStr, out var cat);
+
+            list.Add(new CandidateClassification
+            {
+                FileRecordId = fileId,
+                ScanRunId = scanRunId,
+                Category = cat,
+                RuleId = ruleId,
+                Priority = priority,
+                Confidence = confidence,
+                Explanation = explanation,
+                FullPath = fullPath,
+                FileName = fileName,
+                Extension = extension,
+                SizeBytes = sizeBytes,
+                LastWriteTimeUtc = lastWrite
+            });
+        }
+
+        return list;
+    }
+
+    public async Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var tx = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.Transaction = (SqliteTransaction)tx;
+            cmd.CommandText = @"
+                INSERT INTO AnalysisResults (ScanRunId, FileId, Category, RuleId, Priority, Confidence, Explanation, AnalysisVersion)
+                VALUES (@ScanRunId, @FileId, @Category, @RuleId, @Priority, @Confidence, @Explanation, @AnalysisVersion);
+            ";
+            var pScan = cmd.Parameters.Add("@ScanRunId", SqliteType.Text);
+            var pFile = cmd.Parameters.Add("@FileId", SqliteType.Integer);
+            var pCat = cmd.Parameters.Add("@Category", SqliteType.Text);
+            var pRule = cmd.Parameters.Add("@RuleId", SqliteType.Text);
+            var pPrio = cmd.Parameters.Add("@Priority", SqliteType.Integer);
+            var pConf = cmd.Parameters.Add("@Confidence", SqliteType.Real);
+            var pExp = cmd.Parameters.Add("@Explanation", SqliteType.Text);
+            var pVer = cmd.Parameters.Add("@AnalysisVersion", SqliteType.Text);
+
+            foreach (var c in results)
+            {
+                pScan.Value = scanRunId.ToString();
+                pFile.Value = c.FileRecordId > 0 ? c.FileRecordId : (object)DBNull.Value;
+                pCat.Value = c.Category.ToString();
+                pRule.Value = c.RuleId;
+                pPrio.Value = c.Priority;
+                pConf.Value = c.Confidence;
+                pExp.Value = c.Explanation;
+                pVer.Value = "1.3";
+                await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 }

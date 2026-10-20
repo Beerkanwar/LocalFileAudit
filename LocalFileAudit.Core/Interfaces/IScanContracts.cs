@@ -49,6 +49,8 @@ public interface IScanRepository
     Task InsertChatMessageAsync(ChatMessageRecord message, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ChatMessageRecord>> GetChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task DeleteChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

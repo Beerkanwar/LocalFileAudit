@@ -66,7 +66,6 @@ public sealed partial class CompareRunsViewModel : ViewModelBase
         _notificationService = notificationService;
 
         Title = "Run Comparison";
-        _ = LoadAvailableRunsAsync();
     }
 
     public async Task LoadAvailableRunsAsync()

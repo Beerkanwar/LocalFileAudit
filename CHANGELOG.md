@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.4] - 2026-10-20
+
+### Fixed
+- **Single-Instance Mutex & Focus Activation:** Added named system mutex (`Local\LocalFileAudit_SingleInstance_Mutex`) in `App.xaml.cs`. When an existing instance is detected, the new launch restores and focuses the active window via Win32 `ShowWindow`/`SetForegroundWindow` and cleanly exits without touching the database, preventing concurrent process contention.
+- **SQLite Concurrency & Busy Timeout Hardening:**
+  - Configured `DefaultTimeout = 30` (and `60` in database initializer) on all `SqliteConnectionStringBuilder` instances, coupled with `PRAGMA busy_timeout = 30000;` on all opened connections.
+  - Replaced `Cache = SqliteCacheMode.Shared` with `Cache = SqliteCacheMode.Private` across all database connections to avoid table-level lock collisions in WAL mode.
+  - Switched startup checkpoint from blocking `PRAGMA wal_checkpoint(TRUNCATE)` to non-blocking `PRAGMA wal_checkpoint(PASSIVE)` to eliminate startup deadlocks when database handles are active.
+- **Startup Query Storm Elimination & Lazy Initialization:** Removed eager unawaited background queries from ViewModel constructors (`ScansViewModel`, `InventoryViewModel`, `DuplicateAnalysisViewModel`, `AiReportsViewModel`, `CompareRunsViewModel`, `ArchivePlanViewModel`) and introduced `EnsureInitializedAsync()` invoked upon first navigation.
+- **Repository-Level Analysis Results Caching:** Routed `AnalysisResults` reads and writes through `IScanRepository` (`GetCachedAnalysisResultsAsync` and `SaveAnalysisResultsAsync`), synchronizing writes via `_writeLock` to prevent concurrent database lock conflicts during report generation.
+
+---
+
 ## [1.3.3] - 2026-10-20
 
 ### Fixed

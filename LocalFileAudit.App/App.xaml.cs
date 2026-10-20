@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using LocalFileAudit.App.ViewModels;
@@ -15,10 +18,22 @@ namespace LocalFileAudit.App;
 /// </summary>
 public partial class App : Application
 {
+    private static Mutex? _singleInstanceMutex;
     private IHost? _host;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
+        const string mutexName = @"Local\LocalFileAudit_SingleInstance_Mutex";
+        _singleInstanceMutex = new Mutex(true, mutexName, out bool isNewInstance);
+
+        if (!isNewInstance)
+        {
+            // Another instance is already running or starting up!
+            BringExistingWindowToFront();
+            Shutdown(0);
+            return;
+        }
+
         base.OnStartup(e);
 
         SetupGlobalExceptionHandling();
@@ -98,8 +113,49 @@ public partial class App : Application
             _host.Dispose();
         }
 
+        if (_singleInstanceMutex != null)
+        {
+            try
+            {
+                _singleInstanceMutex.ReleaseMutex();
+            }
+            catch { }
+            _singleInstanceMutex.Dispose();
+            _singleInstanceMutex = null;
+        }
+
         base.OnExit(e);
     }
+
+    private static void BringExistingWindowToFront()
+    {
+        try
+        {
+            var current = Process.GetCurrentProcess();
+            var other = Process.GetProcessesByName(current.ProcessName)
+                .FirstOrDefault(p => p.Id != current.Id && p.MainWindowHandle != IntPtr.Zero);
+
+            if (other != null)
+            {
+                ShowWindow(other.MainWindowHandle, SW_RESTORE);
+                SetForegroundWindow(other.MainWindowHandle);
+            }
+        }
+        catch
+        {
+            // Best effort activation
+        }
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SW_RESTORE = 9;
 
     private void SetupGlobalExceptionHandling()
     {

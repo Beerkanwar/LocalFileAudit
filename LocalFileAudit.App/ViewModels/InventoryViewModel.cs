@@ -129,7 +129,6 @@ public sealed partial class InventoryViewModel : ViewModelBase
         Title = "File Inventory";
 
         InitFilterOptions();
-        _ = LoadInitialDataAsync();
     }
 
     private void InitFilterOptions()
@@ -152,8 +151,17 @@ public sealed partial class InventoryViewModel : ViewModelBase
         SelectedAgeOption = AgeFilterOptions[0];
     }
 
+    private bool _isInitialized;
+
+    public async Task EnsureInitializedAsync(Guid? preferredScanId = null)
+    {
+        if (_isInitialized && preferredScanId == null) return;
+        await LoadInitialDataAsync(preferredScanId);
+    }
+
     public async Task LoadInitialDataAsync(Guid? preferredScanId = null)
     {
+        _isInitialized = true;
         try
         {
             var scans = await _repository.GetRecentScanRunsAsync(20);
