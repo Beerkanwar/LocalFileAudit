@@ -454,6 +454,59 @@ public class AiIntegrationTests : IDisposable
         Assert.Contains(cached, c => c.FileRecordId == 1002);
     }
 
+    [Fact]
+    public async Task OllamaClient_WhenResponseInThinkingProperty_ExtractsFallbackJsonAndStripsTags()
+    {
+        var mockHandler = new MockHttpMessageHandler
+        {
+            Handler = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new
+                {
+                    model = "qwen3:4b",
+                    response = "",
+                    thinking = "Thinking through the request... <think>internal thoughts</think> {\"executiveSummary\":\"Fallback ok\"}",
+                    done = true
+                }))
+            }
+        };
+        var httpClient = new HttpClient(mockHandler);
+        var client = new OllamaClient(httpClient, _configService, NullLogger<OllamaClient>.Instance);
+
+        var result = await client.GenerateJsonAsync("http://127.0.0.1:11434", "qwen3:4b", "sys", "prompt");
+
+        Assert.Equal("{\"executiveSummary\":\"Fallback ok\"}", result);
+    }
+
+    [Fact]
+    public async Task OllamaClient_SendChatAsync_StripsThinkingTags()
+    {
+        var mockHandler = new MockHttpMessageHandler
+        {
+            Handler = _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new
+                {
+                    model = "qwen3:4b",
+                    message = new
+                    {
+                        role = "assistant",
+                        content = "Thinking about archives... </think>\n\nArchive candidates are files flagged for long term retention."
+                    },
+                    done = true
+                }))
+            }
+        };
+        var httpClient = new HttpClient(mockHandler);
+        var client = new OllamaClient(httpClient, _configService, NullLogger<OllamaClient>.Instance);
+
+        var history = new[] { new ChatMessageRecord { Role = "user", Content = "test" } };
+        var result = await client.SendChatAsync("http://127.0.0.1:11434", "qwen3:4b", "sys", history);
+
+        Assert.DoesNotContain("Thinking about archives", result);
+        Assert.StartsWith("Archive candidates are files flagged", result);
+    }
+
     public void Dispose()
     {
         try

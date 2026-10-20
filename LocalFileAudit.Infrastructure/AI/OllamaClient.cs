@@ -174,6 +174,7 @@ public sealed class OllamaClient : IOllamaClient
             system = systemPrompt,
             stream = false,
             format = "json",
+            think = false,
             options = new
             {
                 temperature = 0.1,
@@ -215,12 +216,36 @@ public sealed class OllamaClient : IOllamaClient
             }
 
             using var doc = JsonDocument.Parse(responseString);
-            if (!doc.RootElement.TryGetProperty("response", out var responseProperty))
+            var root = doc.RootElement;
+            string responseText = string.Empty;
+            if (root.TryGetProperty("response", out var responseProperty))
             {
-                throw new FormatException("Ollama response missing 'response' payload property.");
+                responseText = responseProperty.GetString() ?? string.Empty;
             }
 
-            return responseProperty.GetString() ?? string.Empty;
+            // Fallback: If response is empty but thinking contains JSON (e.g. model truncated during thinking phase)
+            if (string.IsNullOrWhiteSpace(responseText) && root.TryGetProperty("thinking", out var thinkingProperty))
+            {
+                var thinkingText = thinkingProperty.GetString();
+                if (!string.IsNullOrWhiteSpace(thinkingText))
+                {
+                    var start = thinkingText.IndexOf('{');
+                    var end = thinkingText.LastIndexOf('}');
+                    if (start >= 0 && end > start)
+                    {
+                        responseText = thinkingText.Substring(start, end - start + 1);
+                    }
+                }
+            }
+
+            // Strip any unexpected <think> tags if embedded in the response text
+            var thinkEndTag = responseText.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+            if (thinkEndTag >= 0)
+            {
+                responseText = responseText.Substring(thinkEndTag + "</think>".Length).TrimStart();
+            }
+
+            return responseText;
         }
     }
 
@@ -257,6 +282,7 @@ public sealed class OllamaClient : IOllamaClient
             model = model,
             messages = messagesList,
             stream = false,
+            think = false,
             options = new
             {
                 temperature = 0.3,
@@ -302,7 +328,13 @@ public sealed class OllamaClient : IOllamaClient
             if (doc.RootElement.TryGetProperty("message", out var messageProp) &&
                 messageProp.TryGetProperty("content", out var contentProp))
             {
-                return contentProp.GetString() ?? string.Empty;
+                var rawContent = contentProp.GetString() ?? string.Empty;
+                var thinkEnd = rawContent.IndexOf("</think>", StringComparison.OrdinalIgnoreCase);
+                if (thinkEnd >= 0)
+                {
+                    rawContent = rawContent.Substring(thinkEnd + "</think>".Length).TrimStart();
+                }
+                return rawContent;
             }
 
             return string.Empty;

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.10] - 2026-10-21
+
+### Fixed
+- **Thinking Model Support (`think: false` & Zero-Wasted Thinking Tokens):**
+  - Resolved `AI returned an empty response`: When using Ollama reasoning/thinking models (such as `qwen3:4b`), Ollama by default generates internal `<think>...</think>` reasoning tokens that are placed into a separate `thinking` property. If the model is truncated during thinking, Ollama returns `response: ""`, causing the JSON validator to fail.
+  - Added `think = false` in `OllamaClient.GenerateJsonAsync` and `SendChatAsync` requests. This instructs Ollama to disable thinking mode, allowing the model to produce the final JSON response directly in ~30 seconds.
+  - Added fallback JSON extraction: if `response` is ever empty, `OllamaClient` inspects the `thinking` property for embedded JSON objects before throwing.
+  - Added automatic tag stripping: cleanly strips any `<think>...</think>` reasoning blocks from assistant chat messages so only the direct advisory answers are displayed.
+
+---
+
 ## [1.3.9] - 2026-10-21
 
 ### Fixed
