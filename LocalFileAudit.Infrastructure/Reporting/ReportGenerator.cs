@@ -45,75 +45,107 @@ public sealed class ReportGenerator : IReportGenerator
             _environment.ReportsDirectory,
             $"scan-{scanRunId:N}-{DateTime.UtcNow:yyyyMMdd-HHmmss}");
 
-        Directory.CreateDirectory(outputDir);
-        _logger.LogInformation("Generating reports for scan {ScanRunId} into {OutputDir}", scanRunId, outputDir);
+        var parentReportsDir = Path.GetDirectoryName(outputDir) ?? _environment.ReportsDirectory;
+        Directory.CreateDirectory(parentReportsDir);
+        var stagingDir = Path.Combine(parentReportsDir, $".staging_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(stagingDir);
 
-        var generatedFiles = new List<string>();
+        _logger.LogInformation("Generating reports for scan {ScanRunId} into staging {StagingDir}", scanRunId, stagingDir);
 
-        // 1. Summary.md
-        var mdPath = Path.Combine(outputDir, "Summary.md");
-        await WriteFileAtomicallyAsync(mdPath, GenerateMarkdownSummary(run, metrics), cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(mdPath);
-
-        // 2. Summary.html (Secure, local-only, escaped HTML)
-        var htmlPath = Path.Combine(outputDir, "Summary.html");
-        await WriteFileAtomicallyAsync(htmlPath, GenerateHtmlSummary(run, metrics), cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(htmlPath);
-
-        // 3. ExtensionSummary.csv
-        var extCsvPath = Path.Combine(outputDir, "ExtensionSummary.csv");
-        await WriteFileAtomicallyAsync(extCsvPath, GenerateExtensionCsv(metrics.TopExtensions), cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(extCsvPath);
-
-        // 4. DirectorySummary.csv
-        var dirCsvPath = Path.Combine(outputDir, "DirectorySummary.csv");
-        await WriteFileAtomicallyAsync(dirCsvPath, GenerateDirectoryCsv(metrics.LargestDirectories), cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(dirCsvPath);
-
-        // 5. ReviewCandidates.csv
-        var candidatesCsvPath = Path.Combine(outputDir, "ReviewCandidates.csv");
-        await WriteFileAtomicallyAsync(candidatesCsvPath, GenerateCandidatesCsv(metrics.ReviewCandidates), cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(candidatesCsvPath);
-
-        // 6. ScanErrors.csv
-        var errorsCsvPath = Path.Combine(outputDir, "ScanErrors.csv");
-        await WriteFileAtomicallyAsync(errorsCsvPath, GenerateErrorsCsv(errors), cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(errorsCsvPath);
-
-        // 7. Inventory.csv (Top largest files summary)
-        var inventoryCsvPath = Path.Combine(outputDir, "Inventory.csv");
-        await WriteFileAtomicallyAsync(inventoryCsvPath, GenerateInventoryCsv(metrics.LargestFiles), cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(inventoryCsvPath);
-
-        // 8. Manifest.json
-        var manifest = new
+        var stagedFileNames = new List<string>();
+        try
         {
-            ScanRunId = scanRunId,
-            GeneratedAtUtc = DateTime.UtcNow,
-            IsCompleteScan = run.Status == ScanState.Completed,
-            TotalFiles = metrics.TotalFiles,
-            TotalLogicalSizeBytes = metrics.TotalLogicalSizeBytes,
-            TotalLogicalSizeMb = metrics.TotalLogicalSizeBytes / (1024.0 * 1024.0),
-            ErrorCount = run.ErrorCount,
-            ApplicationVersion = run.ApplicationVersion,
-            GeneratedFiles = generatedFiles.Select(Path.GetFileName).ToList()
-        };
+            // 1. Summary.md
+            var mdStaging = Path.Combine(stagingDir, "Summary.md");
+            await File.WriteAllTextAsync(mdStaging, GenerateMarkdownSummary(run, metrics), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("Summary.md");
 
-        var manifestPath = Path.Combine(outputDir, "Manifest.json");
-        var manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
-        await WriteFileAtomicallyAsync(manifestPath, manifestJson, cancellationToken).ConfigureAwait(false);
-        generatedFiles.Add(manifestPath);
+            // 2. Summary.html (Secure, local-only, escaped HTML)
+            var htmlStaging = Path.Combine(stagingDir, "Summary.html");
+            await File.WriteAllTextAsync(htmlStaging, GenerateHtmlSummary(run, metrics), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("Summary.html");
 
-        _logger.LogInformation("Successfully generated {Count} report files.", generatedFiles.Count);
+            // 3. ExtensionSummary.csv
+            var extStaging = Path.Combine(stagingDir, "ExtensionSummary.csv");
+            await File.WriteAllTextAsync(extStaging, GenerateExtensionCsv(metrics.TopExtensions), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("ExtensionSummary.csv");
 
-        return new ReportGenerationResult
+            // 4. DirectorySummary.csv
+            var dirStaging = Path.Combine(stagingDir, "DirectorySummary.csv");
+            await File.WriteAllTextAsync(dirStaging, GenerateDirectoryCsv(metrics.LargestDirectories), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("DirectorySummary.csv");
+
+            // 5. ReviewCandidates.csv
+            var candidatesStaging = Path.Combine(stagingDir, "ReviewCandidates.csv");
+            await File.WriteAllTextAsync(candidatesStaging, GenerateCandidatesCsv(metrics.ReviewCandidates), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("ReviewCandidates.csv");
+
+            // 6. ScanErrors.csv
+            var errorsStaging = Path.Combine(stagingDir, "ScanErrors.csv");
+            await File.WriteAllTextAsync(errorsStaging, GenerateErrorsCsv(errors), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("ScanErrors.csv");
+
+            // 7. Inventory.csv (Top largest files summary)
+            var inventoryStaging = Path.Combine(stagingDir, "Inventory.csv");
+            await File.WriteAllTextAsync(inventoryStaging, GenerateInventoryCsv(metrics.LargestFiles), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("Inventory.csv");
+
+            // 8. Manifest.json
+            var manifest = new
+            {
+                ScanRunId = scanRunId,
+                GeneratedAtUtc = DateTime.UtcNow,
+                IsCompleteScan = run.Status == ScanState.Completed,
+                TotalFiles = metrics.TotalFiles,
+                TotalLogicalSizeBytes = metrics.TotalLogicalSizeBytes,
+                TotalLogicalSizeMb = metrics.TotalLogicalSizeBytes / (1024.0 * 1024.0),
+                ErrorCount = run.ErrorCount,
+                ApplicationVersion = run.ApplicationVersion,
+                GeneratedFiles = stagedFileNames.Concat(new[] { "Manifest.json" }).ToList()
+            };
+
+            var manifestStaging = Path.Combine(stagingDir, "Manifest.json");
+            var manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(manifestStaging, manifestJson, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            stagedFileNames.Add("Manifest.json");
+
+            // All files generated successfully in staging — now atomically commit to outputDir
+            Directory.CreateDirectory(outputDir);
+            var finalGeneratedFiles = new List<string>();
+
+            foreach (var fileName in stagedFileNames)
+            {
+                var src = Path.Combine(stagingDir, fileName);
+                var dest = Path.Combine(outputDir, fileName);
+                File.Move(src, dest, overwrite: true);
+                finalGeneratedFiles.Add(dest);
+            }
+
+            _logger.LogInformation("Successfully committed {Count} report files to {OutputDir}", finalGeneratedFiles.Count, outputDir);
+
+            return new ReportGenerationResult
+            {
+                ScanRunId = scanRunId,
+                OutputDirectory = outputDir,
+                GeneratedAtUtc = DateTime.UtcNow,
+                IsCompleteScan = run.Status == ScanState.Completed,
+                GeneratedFiles = finalGeneratedFiles
+            };
+        }
+        finally
         {
-            ScanRunId = scanRunId,
-            OutputDirectory = outputDir,
-            GeneratedAtUtc = DateTime.UtcNow,
-            IsCompleteScan = run.Status == ScanState.Completed,
-            GeneratedFiles = generatedFiles
-        };
+            if (Directory.Exists(stagingDir))
+            {
+                try
+                {
+                    Directory.Delete(stagingDir, recursive: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to clean up staging directory {StagingDir}", stagingDir);
+                }
+            }
+        }
     }
 
     private static async Task WriteFileAtomicallyAsync(string finalPath, string content, CancellationToken cancellationToken)

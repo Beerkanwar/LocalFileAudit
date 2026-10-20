@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LocalFileAudit.Core.Configuration;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
@@ -6,6 +7,7 @@ using LocalFileAudit.Infrastructure.Configuration;
 using LocalFileAudit.Infrastructure.Environment;
 using LocalFileAudit.Infrastructure.Persistence;
 using LocalFileAudit.Infrastructure.Scanning;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LocalFileAudit.Tests;
@@ -115,6 +117,63 @@ public class CrashRecoveryAndReparseTests : IDisposable
 
         var fileCount = await repo.GetFileCountForScanAsync(run.Id);
         Assert.Equal(1, fileCount);
+    }
+
+    [Fact]
+    public async Task RealProcessKill_WalMode_PreservesCommittedDataAndRecoversCleanly()
+    {
+        Directory.CreateDirectory(_tempAppDataDir);
+        var dbPath = Path.Combine(_tempAppDataDir, "crash_worker.db");
+
+        var workerDll = typeof(LocalFileAudit.CrashWorker.Program).Assembly.Location;
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            Arguments = $"exec \"{workerDll}\" \"{dbPath}\"",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+
+        // Wait until child signals that transactions are committed and connection is kept open
+        string? readyLine = null;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        while (!cts.Token.IsCancellationRequested && !process.HasExited)
+        {
+            var line = await process.StandardOutput.ReadLineAsync(cts.Token);
+            if (line != null && line.Contains("COMMITTED_AND_READY"))
+            {
+                readyLine = line;
+                break;
+            }
+        }
+
+        Assert.NotNull(readyLine);
+        Assert.False(process.HasExited, "Child process must still be running before termination");
+
+        // Forcefully kill child process without clean shutdown (abrupt crash simulation)
+        process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync();
+
+        // Reopen database with fresh connection and verify PRAGMA integrity_check
+        await using var connection = new SqliteConnection($"Data Source={dbPath};Mode=ReadOnly");
+        await connection.OpenAsync();
+
+        await using var checkCmd = connection.CreateCommand();
+        checkCmd.CommandText = "PRAGMA integrity_check;";
+        var integrityResult = (string?)await checkCmd.ExecuteScalarAsync();
+        Assert.Equal("ok", integrityResult);
+
+        // Verify committed 100 rows survived the process kill
+        await using var countCmd = connection.CreateCommand();
+        countCmd.CommandText = "SELECT COUNT(1) FROM CrashTestEntries;";
+        var count = Convert.ToInt64(await countCmd.ExecuteScalarAsync());
+        Assert.Equal(100, count);
     }
 
     public void Dispose()

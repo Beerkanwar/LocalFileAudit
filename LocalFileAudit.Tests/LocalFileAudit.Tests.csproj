@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\LocalFileAudit.Core\LocalFileAudit.Core.csproj" />
     <ProjectReference Include="..\LocalFileAudit.Infrastructure\LocalFileAudit.Infrastructure.csproj" />
+    <ProjectReference Include="..\LocalFileAudit.CrashWorker\LocalFileAudit.CrashWorker.csproj" />
   </ItemGroup>
 
 </Project>
