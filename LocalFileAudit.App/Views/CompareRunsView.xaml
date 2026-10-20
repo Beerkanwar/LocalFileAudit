@@ -1,0 +1,253 @@
+<UserControl x:Class="LocalFileAudit.App.Views.CompareRunsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:vm="clr-namespace:LocalFileAudit.App.ViewModels"
+             d:DataContext="{d:DesignInstance Type=vm:CompareRunsViewModel}"
+             mc:Ignorable="d" 
+             d:DesignHeight="800" d:DesignWidth="1100">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <!-- Header bar -->
+            <RowDefinition Height="Auto" />
+            <!-- Run Selection & Actions -->
+            <RowDefinition Height="Auto" />
+            <!-- KPI Summary Cards -->
+            <RowDefinition Height="Auto" />
+            <!-- Data Grid & Extension Delta Tables -->
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="Run Comparison &amp; Change Tracking" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+                <TextBlock Text="Diff filesystem state across recurring scans to identify New, Deleted, and Modified files, as well as net storage deltas."
+                           Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" />
+            </StackPanel>
+            <Border Grid.Column="1" Background="{StaticResource CardBackgroundBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Padding="12,6" VerticalAlignment="Center">
+                <TextBlock Text="{Binding StatusMessage}" FontSize="12" Foreground="{StaticResource AccentHoverBrush}" />
+            </Border>
+        </Grid>
+
+        <!-- Selection Controls Strip -->
+        <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}" Padding="16,12" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Baseline Run (A) -->
+                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                    <TextBlock Text="BASELINE SCAN (OLDER)" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableRuns}"
+                              SelectedItem="{Binding SelectedBaselineRun}"
+                              DisplayMemberPath="DisplayText"
+                              Height="32" FontSize="12" />
+                </StackPanel>
+
+                <!-- Target Run (B) -->
+                <StackPanel Grid.Column="1" Margin="0,0,16,0">
+                    <TextBlock Text="TARGET SCAN (NEWER)" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" />
+                    <ComboBox ItemsSource="{Binding AvailableRuns}"
+                              SelectedItem="{Binding SelectedTargetRun}"
+                              DisplayMemberPath="DisplayText"
+                              Height="32" FontSize="12" />
+                </StackPanel>
+
+                <!-- Actions -->
+                <Button Grid.Column="2" Style="{StaticResource PrimaryButtonStyle}" Content="⚖ Compare Runs"
+                        Command="{Binding CompareRunsCommand}" Height="32" Padding="16,0" VerticalAlignment="Bottom" Margin="0,0,10,0" />
+
+                <Button Grid.Column="3" Style="{StaticResource SecondaryButtonStyle}" Content="📥 Export Diff CSV..."
+                        Command="{Binding ExportDiffCsvCommand}" Height="32" Padding="14,0" VerticalAlignment="Bottom"
+                        IsEnabled="{Binding HasComparisonResult}" />
+            </Grid>
+        </Border>
+
+        <!-- KPI Metric Cards Grid -->
+        <UniformGrid Grid.Row="2" Columns="4" Margin="0,0,0,16" Visibility="{Binding HasComparisonResult, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <!-- Metric 1: New Files -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,10,0">
+                <StackPanel>
+                    <TextBlock Text="NEW FILES DISCOVERED" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                    <TextBlock Text="{Binding NewFilesText}" FontSize="18" FontWeight="Bold" Foreground="{StaticResource SafeBrush}" Margin="0,6,0,0" />
+                    <TextBlock Text="Present in target only" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
+                </StackPanel>
+            </Border>
+
+            <!-- Metric 2: Deleted Files -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="5,0,5,0">
+                <StackPanel>
+                    <TextBlock Text="DELETED FILES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                    <TextBlock Text="{Binding DeletedFilesText}" FontSize="18" FontWeight="Bold" Foreground="{StaticResource ErrorBrush}" Margin="0,6,0,0" />
+                    <TextBlock Text="No longer found on target" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
+                </StackPanel>
+            </Border>
+
+            <!-- Metric 3: Modified Files -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="5,0,5,0">
+                <StackPanel>
+                    <TextBlock Text="MODIFIED FILES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                    <TextBlock Text="{Binding ModifiedFilesText}" FontSize="18" FontWeight="Bold" Foreground="{StaticResource WarningBrush}" Margin="0,6,0,0" />
+                    <TextBlock Text="Size or timestamp changed" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
+                </StackPanel>
+            </Border>
+
+            <!-- Metric 4: Net Storage Change -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="10,0,0,0">
+                <StackPanel>
+                    <TextBlock Text="NET STORAGE DRIFT" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                    <TextBlock Text="{Binding NetStorageDeltaText}" FontSize="18" FontWeight="Bold" Foreground="{StaticResource AccentHoverBrush}" Margin="0,6,0,0" />
+                    <TextBlock Text="Storage difference across runs" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,3,0,0" />
+                </StackPanel>
+            </Border>
+        </UniformGrid>
+
+        <!-- Main Body: File Deltas Table + Extension Deltas List -->
+        <Grid Grid.Row="3" Visibility="{Binding HasComparisonResult, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="1*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: File Deltas List -->
+            <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" Padding="0" Margin="0,0,10,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <!-- Filter Sub-header -->
+                        <RowDefinition Height="Auto" />
+                        <!-- DataGrid -->
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Filter Sub-header -->
+                    <Grid Grid.Row="0" Margin="14,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="DELTA TYPE:" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <ComboBox ItemsSource="{Binding DeltaFilterOptions}"
+                                      SelectedItem="{Binding SelectedDeltaFilter}"
+                                      Width="110" Height="28" FontSize="12" />
+                        </StackPanel>
+
+                        <TextBox Grid.Column="1" Text="{Binding SearchFilter, UpdateSourceTrigger=PropertyChanged}"
+                                 Height="28" VerticalContentAlignment="Center" Padding="8,0" FontSize="12" Margin="12,0"
+                                 Background="{StaticResource CardElevatedBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" />
+
+                        <TextBlock Grid.Column="2" Text="{Binding FilteredDeltas.Count, StringFormat='{}Showing top {0:N0} records'}"
+                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                    </Grid>
+
+                    <!-- Deltas DataGrid -->
+                    <DataGrid Grid.Row="1" ItemsSource="{Binding FilteredDeltas}"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="True"
+                              SelectionMode="Single"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal"
+                              HorizontalGridLinesBrush="{StaticResource BorderBrush}"
+                              Background="{StaticResource CardBackgroundBrush}"
+                              BorderThickness="0,1,0,0"
+                              BorderBrush="{StaticResource BorderBrush}">
+                        <DataGrid.Columns>
+                            <!-- Delta Type Badge -->
+                            <DataGridTemplateColumn Header="Change" Width="85">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="3" Padding="6,2" HorizontalAlignment="Center">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding DeltaType}" Value="New">
+                                                            <Setter Property="Background" Value="#134E3F" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding DeltaType}" Value="Deleted">
+                                                            <Setter Property="Background" Value="#5C1D24" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding DeltaType}" Value="Modified">
+                                                            <Setter Property="Background" Value="#5C4813" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding DeltaType}" FontSize="11" FontWeight="Bold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding DeltaType}" Value="New">
+                                                                <Setter Property="Foreground" Value="#6EE7B7" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding DeltaType}" Value="Deleted">
+                                                                <Setter Property="Foreground" Value="#FCA5A5" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding DeltaType}" Value="Modified">
+                                                                <Setter Property="Foreground" Value="#FDE68A" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+
+                            <DataGridTextColumn Header="File Path" Binding="{Binding FullPath}" Width="*" />
+                            <DataGridTextColumn Header="Ext" Binding="{Binding Extension}" Width="60" />
+                            <DataGridTextColumn Header="Base Size" Binding="{Binding BaselineSizeBytes, StringFormat='{}{0:N0} B'}" Width="90" />
+                            <DataGridTextColumn Header="Target Size" Binding="{Binding TargetSizeBytes, StringFormat='{}{0:N0} B'}" Width="90" />
+                            <DataGridTextColumn Header="Delta" Binding="{Binding SizeDeltaBytes, StringFormat='{}{0:+#,##0;-#,##0;0} B'}" Width="95" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <!-- Right: Extension Breakdown -->
+            <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}" Padding="14">
+                <DockPanel LastChildFill="True">
+                    <TextBlock DockPanel.Dock="Top" Text="Extension Net Drift (Top)" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,10" />
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding ExtensionDeltas}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,8" Margin="0,3">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding Extension}" FontWeight="Bold" FontSize="12" Foreground="{StaticResource AccentHoverBrush}" />
+                                                <TextBlock Text="{Binding NetDeltaBytes, StringFormat='{}Net: {0:+#,##0;-#,##0;0} B'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding NewCount, StringFormat='{}+{0} new'}" FontSize="10" Foreground="{StaticResource SafeBrush}" />
+                                                <TextBlock Text="{Binding DeletedCount, StringFormat='{}-{0} del'}" FontSize="10" Foreground="{StaticResource ErrorBrush}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

@@ -104,6 +104,9 @@
                         <Button Style="{StaticResource NavButtonStyle}" Content="🤖  AI Reports"
                                 Command="{Binding NavigateCommand}" CommandParameter="AiReports" />
 
+                        <Button Style="{StaticResource NavButtonStyle}" Content="⚖  Run Comparison"
+                                Command="{Binding NavigateCommand}" CommandParameter="CompareRuns" />
+
                         <Separator Background="{StaticResource BorderBrush}" Margin="8,10" />
 
                         <Button Style="{StaticResource NavButtonStyle}" Content="⚙  Settings"

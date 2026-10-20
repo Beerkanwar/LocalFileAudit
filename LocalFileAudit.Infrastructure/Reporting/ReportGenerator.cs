@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using LocalFileAudit.Core.Analysis;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -17,17 +18,20 @@ public sealed class ReportGenerator : IReportGenerator
     private readonly IScanRepository _repository;
     private readonly IAppEnvironment _environment;
     private readonly ILogger<ReportGenerator> _logger;
+    private readonly IConfigurationService? _configurationService;
 
     public ReportGenerator(
         IStorageAnalysisEngine analysisEngine,
         IScanRepository repository,
         IAppEnvironment environment,
-        ILogger<ReportGenerator> logger)
+        ILogger<ReportGenerator> logger,
+        IConfigurationService? configurationService = null)
     {
         _analysisEngine = analysisEngine ?? throw new ArgumentNullException(nameof(analysisEngine));
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _environment = environment ?? throw new ArgumentNullException(nameof(environment));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _configurationService = configurationService;
     }
 
     public async Task<ReportGenerationResult> GenerateReportsAsync(
@@ -467,5 +471,137 @@ public sealed class ReportGenerator : IReportGenerator
 
         var sorted = reports.OrderByDescending(r => r.GeneratedAtUtc).ToList();
         return Task.FromResult<IReadOnlyList<ReportFolderInfo>>(sorted);
+    }
+
+    public async Task<long> ExportFullInventoryCsvAsync(
+        Guid scanRunId,
+        string destinationCsvPath,
+        FileInventoryExportFilter? filter = null,
+        IProgress<double>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationCsvPath);
+
+        var run = await _repository.GetScanRunAsync(scanRunId, cancellationToken).ConfigureAwait(false)
+            ?? throw new ArgumentException($"Scan run {scanRunId} not found.", nameof(scanRunId));
+
+        var dir = Path.GetDirectoryName(destinationCsvPath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var tempPath = Path.Combine(dir ?? Path.GetTempPath(), $".staging_inventory_{Guid.NewGuid():N}.tmp");
+        long exportedCount = 0;
+        long totalEvaluated = 0;
+
+        try
+        {
+            var config = _configurationService?.Current ?? new Core.Configuration.AppConfiguration();
+            var pageSize = 2000;
+            var offset = 0;
+
+            var totalFilesInScan = Math.Max(1, run.FilesDiscovered);
+
+            await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true))
+            await using (var writer = new StreamWriter(stream, Encoding.UTF8))
+            {
+                // Script matched headers: FullName, Extension, SizeBytes, LastWriteTime, AgeDays, RuleCategory
+                await writer.WriteLineAsync("FullName,Extension,SizeBytes,LastWriteTime,AgeDays,RuleCategory");
+
+                while (true)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    string? extFilter = null;
+                    if (filter?.Extension != null && !string.IsNullOrWhiteSpace(filter.Extension) && filter.Extension != "All Extensions")
+                    {
+                        extFilter = filter.Extension;
+                    }
+
+                    var query = new FileInventoryQuery
+                    {
+                        ScanRunId = scanRunId,
+                        Extension = extFilter,
+                        MinSizeBytes = filter?.MinSizeBytes,
+                        Offset = offset,
+                        Limit = pageSize,
+                        SortBy = "SizeBytes",
+                        SortDescending = true
+                    };
+
+                    var page = await _repository.QueryFilesAsync(query, cancellationToken).ConfigureAwait(false);
+                    if (page.Items.Count == 0)
+                    {
+                        break;
+                    }
+
+                    var now = DateTime.UtcNow;
+                    foreach (var file in page.Items)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        totalEvaluated++;
+
+                        var classification = CandidateRuleEvaluator.Classify(file, config);
+                        var isCandidate = classification != null &&
+                            (classification.Category == CandidateCategory.ArchiveCandidate ||
+                             classification.Category == CandidateCategory.CleanupCandidate ||
+                             classification.Category == CandidateCategory.Investigate);
+
+                        if (filter?.OnlyCandidates == true && !isCandidate)
+                        {
+                            continue;
+                        }
+
+                        var ruleCategory = classification?.Category.ToString() ?? "Keep";
+                        var lastWriteTimeStr = file.LastWriteTimeUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty;
+                        var ageDays = file.LastWriteTimeUtc.HasValue
+                            ? (now - file.LastWriteTimeUtc.Value).TotalDays.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
+                            : "0.0";
+
+                        var escapedPath = file.FullPath.Contains(',') || file.FullPath.Contains('"')
+                            ? $"\"{file.FullPath.Replace("\"", "\"\"")}\""
+                            : file.FullPath;
+
+                        var line = string.Format(
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            "{0},{1},{2},{3},{4},{5}",
+                            escapedPath,
+                            file.Extension,
+                            file.SizeBytes,
+                            lastWriteTimeStr,
+                            ageDays,
+                            ruleCategory);
+
+                        await writer.WriteLineAsync(line);
+                        exportedCount++;
+                    }
+
+                    offset += page.Items.Count;
+                    var pct = Math.Min(100.0, (double)totalEvaluated / totalFilesInScan * 100.0);
+                    progress?.Report(pct);
+
+                    if (offset >= page.TotalCount)
+                    {
+                        break;
+                    }
+                }
+
+                await writer.FlushAsync();
+            }
+
+            File.Move(tempPath, destinationCsvPath, overwrite: true);
+            progress?.Report(100.0);
+            _logger.LogInformation("Full inventory export completed: {ExportedCount} files exported to {Path}", exportedCount, destinationCsvPath);
+            return exportedCount;
+        }
+        catch
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+            throw;
+        }
     }
 }

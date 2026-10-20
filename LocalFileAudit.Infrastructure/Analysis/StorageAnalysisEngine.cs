@@ -49,15 +49,41 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         var largestDirectories = await GetLargestDirectoriesAsync(scanRunId, 30, cancellationToken).ConfigureAwait(false);
         var candidates = await ClassifyCandidatesAsync(scanRunId, cancellationToken).ConfigureAwait(false);
 
+        long cloudCount = 0;
+        long cloudBytes = 0;
+        await using (var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
+        await using (var cloudCmd = conn.CreateCommand())
+        {
+            cloudCmd.CommandText = @"
+                SELECT COUNT(1) AS CloudCount, COALESCE(SUM(SizeBytes), 0) AS CloudBytes
+                FROM Files
+                WHERE ScanRunId = @ScanRunId AND MetadataStatus = 'CloudPlaceholder';
+            ";
+            cloudCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+            await using var cloudReader = await cloudCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await cloudReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                cloudCount = cloudReader.GetInt64(0);
+                cloudBytes = cloudReader.GetInt64(1);
+            }
+        }
+
+        var firstRoot = run.SelectedDrives?.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "C:\\";
+        var volumeSpace = Scanning.FileAllocationHelper.GetVolumeSpace(firstRoot);
+
         return new StorageMetricsSummary
         {
             ScanRunId = scanRunId,
             AnalyzedAtUtc = DateTime.UtcNow,
             TotalFiles = totalFiles,
             TotalLogicalSizeBytes = totalBytes,
+            CloudPlaceholderCount = cloudCount,
+            CloudPlaceholderSizeBytes = cloudBytes,
+            VolumeCapacityBytes = volumeSpace?.TotalBytes ?? 0,
+            VolumeFreeBytes = volumeSpace?.FreeBytes ?? 0,
             ErrorCount = run.ErrorCount,
             IsScanComplete = run.Status == ScanState.Completed,
-            SelectedDrives = run.SelectedDrives,
+            SelectedDrives = run.SelectedDrives ?? string.Empty,
             TopExtensions = topExtensions.ToList(),
             LargestFiles = largestFiles.ToList(),
             LargestDirectories = largestDirectories.ToList(),

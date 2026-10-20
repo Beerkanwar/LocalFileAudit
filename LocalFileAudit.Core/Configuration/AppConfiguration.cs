@@ -25,6 +25,7 @@ public sealed class ScanningConfiguration
     public bool HashingEnabledByDefault { get; set; } = false;
     public bool CompletionNotificationEnabled { get; set; } = true;
     public bool CompletionSoundEnabled { get; set; } = true;
+    public bool RecordCloudPlaceholders { get; set; } = true;
 }
 
 /// <summary>

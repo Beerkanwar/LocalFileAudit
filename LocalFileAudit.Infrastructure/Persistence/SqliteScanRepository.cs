@@ -748,6 +748,171 @@ public sealed class SqliteScanRepository : IScanRepository
         return null;
     }
 
+    public async Task<RunComparisonResult> CompareScanRunsAsync(Guid baselineRunId, Guid targetRunId, CancellationToken cancellationToken = default)
+    {
+        var baselineRun = await GetScanRunAsync(baselineRunId, cancellationToken).ConfigureAwait(false)
+            ?? throw new ArgumentException($"Baseline scan run {baselineRunId} was not found.");
+        var targetRun = await GetScanRunAsync(targetRunId, cancellationToken).ConfigureAwait(false)
+            ?? throw new ArgumentException($"Target scan run {targetRunId} was not found.");
+
+        var result = new RunComparisonResult
+        {
+            BaselineRunId = baselineRunId,
+            TargetRunId = targetRunId,
+            BaselineTimeUtc = baselineRun.StartTimeUtc,
+            TargetTimeUtc = targetRun.StartTimeUtc
+        };
+
+        var extDict = new Dictionary<string, ExtensionDelta>(StringComparer.OrdinalIgnoreCase);
+
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+
+        cmd.CommandText = @"
+            -- Deleted files (in Baseline, not in Target)
+            SELECT a.FullPath, a.Extension, a.SizeBytes AS BaselineSizeBytes, 0 AS TargetSizeBytes,
+                   a.LastWriteTimeUtc AS BaselineModifiedUtc, NULL AS TargetModifiedUtc,
+                   'Deleted' AS DeltaType
+            FROM Files a
+            LEFT JOIN Files b ON b.ScanRunId = @TargetRunId AND b.FullPath = a.FullPath
+            WHERE a.ScanRunId = @BaselineRunId AND b.Id IS NULL
+
+            UNION ALL
+
+            -- New files (in Target, not in Baseline)
+            SELECT b.FullPath, b.Extension, 0 AS BaselineSizeBytes, b.SizeBytes AS TargetSizeBytes,
+                   NULL AS BaselineModifiedUtc, b.LastWriteTimeUtc AS TargetModifiedUtc,
+                   'New' AS DeltaType
+            FROM Files b
+            LEFT JOIN Files a ON a.ScanRunId = @BaselineRunId AND a.FullPath = b.FullPath
+            WHERE b.ScanRunId = @TargetRunId AND a.Id IS NULL
+
+            UNION ALL
+
+            -- Modified files (in both, but size or timestamp changed)
+            SELECT b.FullPath, b.Extension, a.SizeBytes AS BaselineSizeBytes, b.SizeBytes AS TargetSizeBytes,
+                   a.LastWriteTimeUtc AS BaselineModifiedUtc, b.LastWriteTimeUtc AS TargetModifiedUtc,
+                   'Modified' AS DeltaType
+            FROM Files a
+            INNER JOIN Files b ON b.ScanRunId = @TargetRunId AND b.FullPath = a.FullPath
+            WHERE a.ScanRunId = @BaselineRunId
+              AND (a.SizeBytes != b.SizeBytes OR a.LastWriteTimeUtc != b.LastWriteTimeUtc)
+            ORDER BY 1 ASC;
+        ";
+        cmd.Parameters.AddWithValue("@BaselineRunId", baselineRunId.ToString());
+        cmd.Parameters.AddWithValue("@TargetRunId", targetRunId.ToString());
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var fullPath = reader.GetString(0);
+            var extension = reader.GetString(1);
+            var baselineBytes = reader.GetInt64(2);
+            var targetBytes = reader.GetInt64(3);
+            DateTime? baseMod = reader.IsDBNull(4) ? null : DateTime.Parse(reader.GetString(4));
+            DateTime? targetMod = reader.IsDBNull(5) ? null : DateTime.Parse(reader.GetString(5));
+            var deltaTypeStr = reader.GetString(6);
+            var deltaType = Enum.Parse<DeltaType>(deltaTypeStr, ignoreCase: true);
+
+            var deltaRecord = new FileDeltaRecord
+            {
+                FullPath = fullPath,
+                Extension = extension,
+                DeltaType = deltaType,
+                BaselineSizeBytes = baselineBytes,
+                TargetSizeBytes = targetBytes,
+                BaselineModifiedUtc = baseMod,
+                TargetModifiedUtc = targetMod
+            };
+            result.Deltas.Add(deltaRecord);
+
+            if (!extDict.TryGetValue(extension, out var extDelta))
+            {
+                extDelta = new ExtensionDelta { Extension = extension };
+                extDict[extension] = extDelta;
+            }
+
+            extDelta.BaselineTotalBytes += baselineBytes;
+            extDelta.TargetTotalBytes += targetBytes;
+
+            switch (deltaType)
+            {
+                case DeltaType.New:
+                    result.NewFilesCount++;
+                    result.NewFilesBytes += targetBytes;
+                    extDelta.NewCount++;
+                    break;
+                case DeltaType.Deleted:
+                    result.DeletedFilesCount++;
+                    result.DeletedFilesBytes += baselineBytes;
+                    extDelta.DeletedCount++;
+                    break;
+                case DeltaType.Modified:
+                    result.ModifiedFilesCount++;
+                    extDelta.ModifiedCount++;
+                    break;
+            }
+        }
+
+        result.NetStorageDeltaBytes = result.Deltas.Sum(d => d.SizeDeltaBytes);
+        result.ExtensionDeltas = extDict.Values.OrderByDescending(e => Math.Abs(e.NetDeltaBytes)).ToList();
+
+        return result;
+    }
+
+    public async Task ExportComparisonCsvAsync(RunComparisonResult comparison, string destinationPath, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(comparison);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+
+        var dir = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var tempPath = Path.Combine(dir ?? Path.GetTempPath(), $".staging_compare_{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            await using (var writer = new StreamWriter(stream, System.Text.Encoding.UTF8))
+            {
+                await writer.WriteLineAsync("DeltaType,FullPath,Extension,BaselineSizeBytes,TargetSizeBytes,SizeDeltaBytes,BaselineModifiedUtc,TargetModifiedUtc");
+                foreach (var delta in comparison.Deltas)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var escapedPath = delta.FullPath.Contains(',') || delta.FullPath.Contains('"')
+                        ? $"\"{delta.FullPath.Replace("\"", "\"\"")}\""
+                        : delta.FullPath;
+
+                    var line = string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "{0},{1},{2},{3},{4},{5},{6},{7}",
+                        delta.DeltaType,
+                        escapedPath,
+                        delta.Extension,
+                        delta.BaselineSizeBytes,
+                        delta.TargetSizeBytes,
+                        delta.SizeDeltaBytes,
+                        delta.BaselineModifiedUtc?.ToString("o") ?? string.Empty,
+                        delta.TargetModifiedUtc?.ToString("o") ?? string.Empty);
+
+                    await writer.WriteLineAsync(line);
+                }
+            }
+
+            File.Move(tempPath, destinationPath, overwrite: true);
+        }
+        catch
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+            throw;
+        }
+    }
+
     private static FileRecord MapFileRecord(SqliteDataReader reader)
     {
         return new FileRecord

@@ -27,4 +27,5 @@ public sealed class ScanTarget
     public bool IncludeFixedDrivesByDefault { get; set; } = true;
     public bool FollowReparsePoints { get; set; } = false;
     public bool LowImpactMode { get; set; } = true;
+    public bool RecordCloudPlaceholders { get; set; } = true;
 }

@@ -50,6 +50,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
                         <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
@@ -66,6 +67,10 @@
 
                         <Button Grid.Column="2" Style="{StaticResource SecondaryButtonStyle}" Content="↺ Reset"
                                 Command="{Binding ResetFiltersCommand}" Margin="8,0,0,0" Height="34" />
+
+                        <Button Grid.Column="3" Style="{StaticResource SecondaryButtonStyle}" Content="📥 Export Full CSV..."
+                                Command="{Binding ExportFullInventoryCommand}" Margin="8,0,0,0" Height="34"
+                                ToolTip="Streams every file from the selected scan run to a reviewable CSV with calculated age and rule categories" />
                     </Grid>
 
                     <!-- Bottom Row: Filter Dropdowns -->
@@ -113,6 +118,25 @@
                                       Height="30" FontSize="12" />
                         </StackPanel>
                     </Grid>
+                </Grid>
+            </Border>
+
+            <!-- Full Inventory Export Progress Notification -->
+            <Border Visibility="{Binding IsExporting, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    Background="#162B3D" BorderBrush="{StaticResource AccentHoverBrush}" BorderThickness="1"
+                    CornerRadius="6" Padding="14,10" Margin="0,8,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ExportStatusText}" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
+                        <ProgressBar Value="{Binding ExportProgressPercent}" Maximum="100" Height="6" Margin="0,6,0,0"
+                                     Foreground="{StaticResource AccentHoverBrush}" Background="#0F172A" BorderThickness="0" />
+                    </StackPanel>
+                    <Button Grid.Column="1" Style="{StaticResource SecondaryButtonStyle}" Content="✕ Cancel Export"
+                            Command="{Binding CancelExportCommand}" Height="28" Padding="10,0" Margin="14,0,0,0" VerticalAlignment="Center" />
                 </Grid>
             </Border>
         </StackPanel>
@@ -251,6 +275,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0">
@@ -259,11 +284,16 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="1">
+                            <TextBlock Text="ON-DISK (ALLOCATED)" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                            <TextBlock Text="{Binding SelectedAllocatedSizeText, FallbackValue='—'}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource AccentHoverBrush}" Margin="0,2,0,0" />
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2">
                             <TextBlock Text="LAST MODIFIED" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
                             <TextBlock Text="{Binding SelectedFile.LastWriteTimeUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm:ss} UTC', FallbackValue='—'}" FontSize="12" Margin="0,2,0,0" />
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2">
+                        <StackPanel Grid.Column="3">
                             <TextBlock Text="ATTRIBUTES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
                             <TextBlock Text="{Binding SelectedAttributesText, FallbackValue='—'}" FontSize="12" Margin="0,2,0,0" />
                         </StackPanel>

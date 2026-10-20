@@ -41,6 +41,7 @@ public partial class App : Application
                     services.AddSingleton<StorageAnalysisViewModel>();
                     services.AddSingleton<DuplicateAnalysisViewModel>();
                     services.AddSingleton<AiReportsViewModel>();
+                    services.AddSingleton<CompareRunsViewModel>();
                     services.AddSingleton<SettingsViewModel>();
                     services.AddSingleton<MainViewModel>();
 

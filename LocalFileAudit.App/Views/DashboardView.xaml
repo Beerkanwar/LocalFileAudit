@@ -88,6 +88,46 @@
 
             </UniformGrid>
 
+            <!-- Storage Accuracy Stats Row (F7) -->
+            <Grid Margin="0,0,0,20">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- Volume Capacity & Free Space -->
+                <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" Margin="0,0,10,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="💾" FontSize="20" Margin="0,0,12,0" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="VOLUME ALLOCATION &amp; FREE SPACE" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                            <TextBlock Text="{Binding VolumeStatsText}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,3,0,0" />
+                            <TextBlock Text="Total capacity and free space on host volume" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,1,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Cloud Placeholders -->
+                <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}" Margin="10,0,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="☁" FontSize="20" Margin="0,0,12,0" VerticalAlignment="Center" Foreground="{StaticResource AccentHoverBrush}" />
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Text="CLOUD PLACEHOLDERS (ONEDRIVE / OFFLINE)" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" />
+                            <TextBlock Text="{Binding CloudPlaceholderStatsText}" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource AccentHoverBrush}" Margin="0,3,0,0" />
+                            <TextBlock Text="Not hydrated locally; tracked with honest logical totals" FontSize="10" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,1,0,0" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+
             <!-- Two-Column Section: File-Type Distribution & Largest Directories -->
             <Grid Margin="0,0,0,20">
                 <Grid.ColumnDefinitions>

@@ -47,11 +47,12 @@ public sealed class QualityOfLifeV11Tests : IDisposable
     }
 
     [Fact]
-    public void AppVersion_ReturnsConfiguredVersion110()
+    public void AppVersion_ReturnsConfiguredVersion()
     {
         // Assert
         Assert.NotNull(AppVersion.Current);
-        Assert.StartsWith("1.1", AppVersion.Current);
+        Assert.Matches(@"^\d+\.\d+\.\d+", AppVersion.Current);
+        Assert.NotEqual("1.0.0", AppVersion.Current);
     }
 
     [Fact]

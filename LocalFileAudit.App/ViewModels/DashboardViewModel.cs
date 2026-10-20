@@ -41,6 +41,12 @@ public sealed partial class DashboardViewModel : ViewModelBase
     private string _cleanupCandidatesCountText = "0 items";
 
     [ObservableProperty]
+    private string _volumeStatsText = "Checking drive capacity...";
+
+    [ObservableProperty]
+    private string _cloudPlaceholderStatsText = "0 files";
+
+    [ObservableProperty]
     private bool _hasScanData;
 
     [ObservableProperty]
@@ -110,6 +116,20 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 var cleanupCount = metrics.ReviewCandidates.Count(c => c.Category == CandidateCategory.CleanupCandidate);
                 ArchiveCandidatesCountText = $"{archiveCount:N0} candidates";
                 CleanupCandidatesCountText = $"{cleanupCount:N0} candidates";
+
+                if (metrics.VolumeCapacityBytes > 0)
+                {
+                    var freeGb = metrics.VolumeFreeBytes / (1024.0 * 1024.0 * 1024.0);
+                    var totalGb = metrics.VolumeCapacityBytes / (1024.0 * 1024.0 * 1024.0);
+                    VolumeStatsText = $"{freeGb:F1} GB free of {totalGb:F1} GB ({metrics.VolumeUsagePercentage:F0}% used)";
+                }
+                else
+                {
+                    VolumeStatsText = "N/A (Drive query unavailable)";
+                }
+
+                var cloudMb = metrics.CloudPlaceholderSizeBytes / (1024.0 * 1024.0);
+                CloudPlaceholderStatsText = $"{metrics.CloudPlaceholderCount:N0} placeholders ({cloudMb:F1} MB logical)";
             }
             else
             {
@@ -121,6 +141,20 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 ScanStateText = "No scans yet";
                 LastScanTimeText = "Never";
                 ErrorCountText = "0 errors";
+
+                var cDrive = drives.FirstOrDefault(d => string.Equals(d.Name, "C:\\", StringComparison.OrdinalIgnoreCase)) ?? drives.FirstOrDefault();
+                if (cDrive != null)
+                {
+                    var freeGb = cDrive.AvailableFreeSpace / (1024.0 * 1024.0 * 1024.0);
+                    var totalGb = cDrive.TotalSize / (1024.0 * 1024.0 * 1024.0);
+                    var pct = totalGb > 0 ? (double)(cDrive.TotalSize - cDrive.AvailableFreeSpace) / cDrive.TotalSize * 100.0 : 0.0;
+                    VolumeStatsText = $"{freeGb:F1} GB free of {totalGb:F1} GB ({pct:F0}% used)";
+                }
+                else
+                {
+                    VolumeStatsText = "No fixed drives found";
+                }
+                CloudPlaceholderStatsText = "0 files";
             }
         }
         catch (Exception ex)

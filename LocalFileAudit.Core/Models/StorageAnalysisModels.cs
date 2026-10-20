@@ -56,6 +56,12 @@ public sealed class StorageMetricsSummary
     public long TotalLogicalSizeBytes { get; set; }
     public long ErrorCount { get; set; }
     public bool IsScanComplete { get; set; }
+    public long CloudPlaceholderCount { get; set; }
+    public long CloudPlaceholderSizeBytes { get; set; }
+    public long VolumeCapacityBytes { get; set; }
+    public long VolumeFreeBytes { get; set; }
+    public long VolumeUsedBytes => Math.Max(0, VolumeCapacityBytes - VolumeFreeBytes);
+    public double VolumeUsagePercentage => VolumeCapacityBytes > 0 ? (double)VolumeUsedBytes / VolumeCapacityBytes * 100.0 : 0.0;
     public string SelectedDrives { get; set; } = string.Empty;
 
     public List<ExtensionSummary> TopExtensions { get; set; } = new();

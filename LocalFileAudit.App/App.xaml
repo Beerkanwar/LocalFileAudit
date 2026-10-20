@@ -9,6 +9,8 @@
                 <ResourceDictionary Source="Resources/Theme.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+
             <!-- ViewModel to View Mappings -->
             <DataTemplate DataType="{x:Type vm:DashboardViewModel}">
                 <views:DashboardView />
@@ -32,6 +34,10 @@
 
             <DataTemplate DataType="{x:Type vm:AiReportsViewModel}">
                 <views:AiReportsView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:CompareRunsViewModel}">
+                <views:CompareRunsView />
             </DataTemplate>
 
             <DataTemplate DataType="{x:Type vm:SettingsViewModel}">

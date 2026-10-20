@@ -50,5 +50,6 @@ public enum ScanMetadataStatus
     NotFound,
     SharingViolation,
     PathTooLong,
+    CloudPlaceholder,
     Error
 }

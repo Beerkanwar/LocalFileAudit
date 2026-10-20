@@ -26,6 +26,7 @@ public sealed partial class MainViewModel : ObservableObject
     public StorageAnalysisViewModel StorageAnalysis { get; }
     public DuplicateAnalysisViewModel DuplicateAnalysis { get; }
     public AiReportsViewModel AiReports { get; }
+    public CompareRunsViewModel CompareRuns { get; }
     public SettingsViewModel Settings { get; }
 
     public MainViewModel(
@@ -35,6 +36,7 @@ public sealed partial class MainViewModel : ObservableObject
         StorageAnalysisViewModel storageAnalysis,
         DuplicateAnalysisViewModel duplicateAnalysis,
         AiReportsViewModel aiReports,
+        CompareRunsViewModel compareRuns,
         SettingsViewModel settings,
         ILogger<MainViewModel> logger)
     {
@@ -44,6 +46,7 @@ public sealed partial class MainViewModel : ObservableObject
         StorageAnalysis = storageAnalysis ?? throw new ArgumentNullException(nameof(storageAnalysis));
         DuplicateAnalysis = duplicateAnalysis ?? throw new ArgumentNullException(nameof(duplicateAnalysis));
         AiReports = aiReports ?? throw new ArgumentNullException(nameof(aiReports));
+        CompareRuns = compareRuns ?? throw new ArgumentNullException(nameof(compareRuns));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -81,6 +84,7 @@ public sealed partial class MainViewModel : ObservableObject
             "StorageAnalysis" => StorageAnalysis,
             "DuplicateAnalysis" => DuplicateAnalysis,
             "AiReports" => AiReports,
+            "CompareRuns" => CompareRuns,
             "Settings" => Settings,
             _ => Dashboard
         };
@@ -99,6 +103,9 @@ public sealed partial class MainViewModel : ObservableObject
                 break;
             case "StorageAnalysis":
                 _ = StorageAnalysis.RefreshGeneratedReportsAsync();
+                break;
+            case "CompareRuns":
+                _ = CompareRuns.LoadAvailableRunsAsync();
                 break;
         }
     }

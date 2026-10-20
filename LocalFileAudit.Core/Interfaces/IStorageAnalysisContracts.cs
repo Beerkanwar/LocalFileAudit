@@ -21,4 +21,5 @@ public interface IReportGenerator
 {
     Task<ReportGenerationResult> GenerateReportsAsync(Guid scanRunId, string? targetDirectory = null, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ReportFolderInfo>> GetGeneratedReportsAsync(CancellationToken cancellationToken = default);
+    Task<long> ExportFullInventoryCsvAsync(Guid scanRunId, string destinationCsvPath, FileInventoryExportFilter? filter = null, IProgress<double>? progress = null, CancellationToken cancellationToken = default);
 }

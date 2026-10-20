@@ -34,7 +34,10 @@ public sealed partial class InventoryViewModel : ViewModelBase
 {
     private readonly IScanRepository _repository;
     private readonly IConfigurationService _configurationService;
+    private readonly IReportGenerator _reportGenerator;
+    private readonly INotificationService? _notificationService;
     private readonly ILogger<InventoryViewModel> _logger;
+    private CancellationTokenSource? _exportCts;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -90,6 +93,18 @@ public sealed partial class InventoryViewModel : ViewModelBase
     [ObservableProperty]
     private string _selectedAttributesText = string.Empty;
 
+    [ObservableProperty]
+    private string _selectedAllocatedSizeText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isExporting;
+
+    [ObservableProperty]
+    private double _exportProgressPercent;
+
+    [ObservableProperty]
+    private string _exportStatusText = string.Empty;
+
     public ObservableCollection<FileRecord> Files { get; } = new();
     public ObservableCollection<ScanRunOption> AvailableScanRuns { get; } = new();
     public ObservableCollection<string> AvailableExtensions { get; } = new();
@@ -99,11 +114,15 @@ public sealed partial class InventoryViewModel : ViewModelBase
     public InventoryViewModel(
         IScanRepository repository,
         IConfigurationService configurationService,
-        ILogger<InventoryViewModel> logger)
+        IReportGenerator reportGenerator,
+        ILogger<InventoryViewModel> logger,
+        INotificationService? notificationService = null)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
+        _reportGenerator = reportGenerator ?? throw new ArgumentNullException(nameof(reportGenerator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _notificationService = notificationService;
 
         Title = "File Inventory";
 
@@ -351,7 +370,26 @@ public sealed partial class InventoryViewModel : ViewModelBase
             if (attr.HasFlag(FileAttributes.Archive)) attrList.Add("Archive");
             if (attr.HasFlag(FileAttributes.Compressed)) attrList.Add("Compressed");
             if (attr.HasFlag(FileAttributes.ReparsePoint)) attrList.Add("Reparse Point");
+            if (value.MetadataStatus == ScanMetadataStatus.CloudPlaceholder) attrList.Add("Cloud Placeholder");
             SelectedAttributesText = attrList.Count > 0 ? string.Join(", ", attrList) : "Normal";
+
+            // On-demand allocated (on-disk) size via Win32 GetCompressedFileSize
+            if (value.MetadataStatus == ScanMetadataStatus.CloudPlaceholder)
+            {
+                SelectedAllocatedSizeText = "0 bytes (Cloud Placeholder / On-demand)";
+            }
+            else
+            {
+                var allocated = LocalFileAudit.Infrastructure.Scanning.FileAllocationHelper.GetAllocatedSizeBytes(value.FullPath);
+                if (allocated.HasValue)
+                {
+                    SelectedAllocatedSizeText = $"{allocated.Value / (1024.0 * 1024.0):F2} MB ({allocated.Value:N0} bytes)";
+                }
+                else
+                {
+                    SelectedAllocatedSizeText = "N/A (Offline or Inaccessible)";
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -421,6 +459,90 @@ public sealed partial class InventoryViewModel : ViewModelBase
         {
             _logger.LogError(ex, "Failed to inspect candidate file ID {FileId}", fileId);
             StatusMessage = $"Navigation to candidate failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    public async Task ExportFullInventoryAsync()
+    {
+        if (IsExporting) return;
+
+        if (SelectedScanRun == null || !SelectedScanRun.Id.HasValue)
+        {
+            MessageBox.Show("Please select a completed scan run before exporting inventory.", "Export Inventory", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var scanId = SelectedScanRun.Id.Value;
+        var sfd = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Export Full File Inventory to CSV",
+            FileName = $"Inventory-Full-{DateTime.UtcNow:yyyyMMdd-HHmmss}.csv",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            DefaultExt = ".csv"
+        };
+
+        if (sfd.ShowDialog() != true)
+        {
+            return;
+        }
+
+        var targetPath = sfd.FileName;
+        _exportCts = new CancellationTokenSource();
+        IsExporting = true;
+        ExportProgressPercent = 0;
+        ExportStatusText = "Preparing streaming inventory export...";
+
+        try
+        {
+            var filter = new FileInventoryExportFilter
+            {
+                Extension = (SelectedExtension == "All Extensions" || string.IsNullOrWhiteSpace(SelectedExtension)) ? null : SelectedExtension,
+                MinSizeBytes = SelectedSizeOption?.MinBytes,
+                OnlyCandidates = false
+            };
+
+            var progress = new Progress<double>(p =>
+            {
+                ExportProgressPercent = p;
+                ExportStatusText = $"Exporting inventory: {p:F0}%";
+            });
+
+            var count = await _reportGenerator.ExportFullInventoryCsvAsync(scanId, targetPath, filter, progress, _exportCts.Token);
+            ExportStatusText = $"Export complete! {count:N0} files written.";
+            StatusMessage = $"Full inventory exported: {count:N0} records to {Path.GetFileName(targetPath)}";
+
+            _notificationService?.NotifyScanCompleted(
+                "Inventory Export Complete",
+                $"Successfully exported {count:N0} file records to {Path.GetFileName(targetPath)}",
+                isSuccess: true);
+        }
+        catch (OperationCanceledException)
+        {
+            ExportStatusText = "Export cancelled.";
+            StatusMessage = "Full inventory export was cancelled.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to export full inventory to {Path}", targetPath);
+            ExportStatusText = $"Export error: {ex.Message}";
+            MessageBox.Show($"Failed to export inventory:\n\n{ex.Message}", "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            IsExporting = false;
+            _exportCts?.Dispose();
+            _exportCts = null;
+        }
+    }
+
+    [RelayCommand]
+    public void CancelExport()
+    {
+        if (IsExporting && _exportCts != null && !_exportCts.IsCancellationRequested)
+        {
+            _exportCts.Cancel();
+            ExportStatusText = "Cancelling export...";
         }
     }
 }

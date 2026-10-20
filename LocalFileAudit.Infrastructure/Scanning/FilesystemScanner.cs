@@ -400,8 +400,29 @@ public sealed class FilesystemScanner : IScanEngine
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var fileRecord = CreateFileRecord(fi, scanRunId);
-                await channelWriter.WriteAsync(fileRecord, cancellationToken).ConfigureAwait(false);
+                var isCloudPlaceholder = IsCloudPlaceholder(fi.Attributes);
+                var isReparse = (fi.Attributes & FileAttributes.ReparsePoint) != 0;
+
+                if (isCloudPlaceholder)
+                {
+                    if (target.RecordCloudPlaceholders)
+                    {
+                        var fileRecord = CreateFileRecord(fi, scanRunId, isCloudPlaceholder: true);
+                        await channelWriter.WriteAsync(fileRecord, cancellationToken).ConfigureAwait(false);
+                        filesCount++;
+                        onFileDiscovered();
+                    }
+                    continue;
+                }
+
+                if (isReparse && !target.FollowReparsePoints)
+                {
+                    _logger.LogDebug("Skipping reparse point file {Path}", fi.FullName);
+                    continue;
+                }
+
+                var standardRecord = CreateFileRecord(fi, scanRunId, isCloudPlaceholder: false);
+                await channelWriter.WriteAsync(standardRecord, cancellationToken).ConfigureAwait(false);
                 filesCount++;
                 onFileDiscovered();
             }
@@ -472,12 +493,24 @@ public sealed class FilesystemScanner : IScanEngine
         await _repository.UpdateDirectoryStatusAsync(dirRecord.Id, DirectoryState.Completed, filesCount, null, cancellationToken).ConfigureAwait(false);
     }
 
-    private static FileRecord CreateFileRecord(FileInfo fi, Guid scanRunId)
+    public static bool IsCloudPlaceholder(FileAttributes attributes)
+    {
+        const int RecallOnDataAccess = 0x00400000;
+        const int RecallOnOpen = 0x00040000;
+        const int Offline = 0x00001000;
+
+        var raw = (int)attributes;
+        return (raw & RecallOnDataAccess) != 0 ||
+               (raw & RecallOnOpen) != 0 ||
+               (raw & Offline) != 0;
+    }
+
+    private static FileRecord CreateFileRecord(FileInfo fi, Guid scanRunId, bool isCloudPlaceholder = false)
     {
         DateTime? creationUtc = null;
         DateTime? writeUtc = null;
         DateTime? accessUtc = null;
-        var status = ScanMetadataStatus.Ok;
+        var status = isCloudPlaceholder ? ScanMetadataStatus.CloudPlaceholder : ScanMetadataStatus.Ok;
 
         try
         {
@@ -487,7 +520,20 @@ public sealed class FilesystemScanner : IScanEngine
         }
         catch
         {
-            status = ScanMetadataStatus.Inaccessible;
+            if (!isCloudPlaceholder)
+            {
+                status = ScanMetadataStatus.Inaccessible;
+            }
+        }
+
+        long sizeBytes = 0;
+        try
+        {
+            sizeBytes = fi.Length;
+        }
+        catch
+        {
+            // Cloud placeholders that fail direct length check default to 0
         }
 
         return new FileRecord
@@ -497,7 +543,7 @@ public sealed class FilesystemScanner : IScanEngine
             ParentPath = fi.DirectoryName ?? string.Empty,
             FileName = fi.Name,
             Extension = fi.Extension.ToLowerInvariant(),
-            SizeBytes = fi.Length,
+            SizeBytes = sizeBytes,
             CreationTimeUtc = creationUtc,
             LastWriteTimeUtc = writeUtc,
             LastAccessTimeUtc = accessUtc,

@@ -44,6 +44,8 @@ public interface IScanRepository
     Task UpdateFileHashAsync(long fileId, string hashAlgorithm, string hashValue, CancellationToken cancellationToken = default);
     Task<string?> FindExistingFileHashAsync(string fullPath, long sizeBytes, DateTime? lastWriteTimeUtc, CancellationToken cancellationToken = default);
     Task<FileRecord?> GetFileByIdAsync(long fileId, CancellationToken cancellationToken = default);
+    Task<RunComparisonResult> CompareScanRunsAsync(Guid baselineRunId, Guid targetRunId, CancellationToken cancellationToken = default);
+    Task ExportComparisonCsvAsync(RunComparisonResult comparison, string destinationPath, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
