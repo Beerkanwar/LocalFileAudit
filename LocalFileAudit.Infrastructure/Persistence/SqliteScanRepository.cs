@@ -200,7 +200,7 @@ public sealed class SqliteScanRepository : IScanRepository
             try
             {
                 await using var cpCmd = connection.CreateCommand();
-                cpCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                cpCmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
                 await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)

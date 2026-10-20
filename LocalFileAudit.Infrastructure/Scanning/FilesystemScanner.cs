@@ -98,34 +98,57 @@ public sealed class FilesystemScanner : IScanEngine
 
         _logger.LogInformation("Starting new scan {ScanRunId} targeting roots: {Roots}", run.Id, run.SelectedDrives);
 
-        if (cancellationToken.IsCancellationRequested)
+        try
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                run.Status = ScanState.Cancelled;
+                run.EndTimeUtc = DateTime.UtcNow;
+                await _repository.CreateScanRunAsync(run, CancellationToken.None).ConfigureAwait(false);
+                return run;
+            }
+
+            await _repository.CreateScanRunAsync(run, CancellationToken.None).ConfigureAwait(false);
+
+            // Initial root directories
+            var rootDirRecords = targets.Select(t => new DirectoryRecord
+            {
+                ScanRunId = run.Id,
+                Path = t,
+                ParentPath = null,
+                Status = DirectoryState.Pending,
+                LastCheckpointUtc = DateTime.UtcNow
+            }).ToList();
+
+            await _repository.InsertDirectoryBatchAsync(rootDirRecords, CancellationToken.None).ConfigureAwait(false);
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                run.Status = ScanState.Cancelled;
+                run.EndTimeUtc = DateTime.UtcNow;
+                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, 0, 0, 0, CancellationToken.None).ConfigureAwait(false);
+                return run;
+            }
+
+            return await ExecuteScanLoopAsync(run, rootDirRecords, target, cancellationToken, progress).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("Scan {ScanRunId} was cancelled during initialization.", run.Id);
             run.Status = ScanState.Cancelled;
             run.EndTimeUtc = DateTime.UtcNow;
-            await _repository.CreateScanRunAsync(run, CancellationToken.None).ConfigureAwait(false);
+            await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, run.FilesDiscovered, run.DirectoriesCompleted, run.ErrorCount, CancellationToken.None).ConfigureAwait(false);
+            return run;
+        }
+        finally
+        {
             lock (_stateLock)
             {
                 _isRunning = false;
-                _currentState = ScanState.Cancelled;
+                _isPaused = false;
+                _currentState = run.Status;
             }
-            return run;
         }
-
-        await _repository.CreateScanRunAsync(run, cancellationToken).ConfigureAwait(false);
-
-        // Initial root directories
-        var rootDirRecords = targets.Select(t => new DirectoryRecord
-        {
-            ScanRunId = run.Id,
-            Path = t,
-            ParentPath = null,
-            Status = DirectoryState.Pending,
-            LastCheckpointUtc = DateTime.UtcNow
-        }).ToList();
-
-        await _repository.InsertDirectoryBatchAsync(rootDirRecords, cancellationToken).ConfigureAwait(false);
-
-        return await ExecuteScanLoopAsync(run, rootDirRecords, target, cancellationToken, progress).ConfigureAwait(false);
     }
 
     public async Task<ScanRun> ResumeScanAsync(Guid scanRunId, CancellationToken cancellationToken, IProgress<ScanProgress>? progress = null)
@@ -142,21 +165,57 @@ public sealed class FilesystemScanner : IScanEngine
             _pauseEvent.Set();
         }
 
-        var run = await _repository.GetScanRunAsync(scanRunId, cancellationToken).ConfigureAwait(false)
-            ?? throw new ArgumentException($"Scan run {scanRunId} not found.", nameof(scanRunId));
-
-        _logger.LogInformation("Resuming scan {ScanRunId}...", scanRunId);
-        await _repository.UpdateScanRunStatusAsync(scanRunId, ScanState.InProgress, null, run.FilesDiscovered, run.DirectoriesCompleted, run.ErrorCount, cancellationToken).ConfigureAwait(false);
-
-        var pendingDirs = await _repository.GetPendingOrInterruptedDirectoriesAsync(scanRunId, cancellationToken).ConfigureAwait(false);
-
-        var target = new ScanTarget
+        ScanRun? run = null;
+        try
         {
-            FollowReparsePoints = _configurationService.Current.Scanning.FollowReparsePoints,
-            LowImpactMode = _configurationService.Current.Scanning.LowImpactMode
-        };
+            run = await _repository.GetScanRunAsync(scanRunId, CancellationToken.None).ConfigureAwait(false)
+                ?? throw new ArgumentException($"Scan run {scanRunId} not found.", nameof(scanRunId));
 
-        return await ExecuteScanLoopAsync(run, pendingDirs, target, cancellationToken, progress).ConfigureAwait(false);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                run.Status = ScanState.Cancelled;
+                run.EndTimeUtc = DateTime.UtcNow;
+                await _repository.UpdateScanRunStatusAsync(scanRunId, ScanState.Cancelled, run.EndTimeUtc, run.FilesDiscovered, run.DirectoriesCompleted, run.ErrorCount, CancellationToken.None).ConfigureAwait(false);
+                return run;
+            }
+
+            _logger.LogInformation("Resuming scan {ScanRunId}...", scanRunId);
+            await _repository.UpdateScanRunStatusAsync(scanRunId, ScanState.InProgress, null, run.FilesDiscovered, run.DirectoriesCompleted, run.ErrorCount, CancellationToken.None).ConfigureAwait(false);
+
+            var pendingDirs = await _repository.GetPendingOrInterruptedDirectoriesAsync(scanRunId, CancellationToken.None).ConfigureAwait(false);
+
+            var target = new ScanTarget
+            {
+                FollowReparsePoints = _configurationService.Current.Scanning.FollowReparsePoints,
+                LowImpactMode = _configurationService.Current.Scanning.LowImpactMode
+            };
+
+            return await ExecuteScanLoopAsync(run, pendingDirs, target, cancellationToken, progress).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            if (run != null)
+            {
+                _logger.LogWarning("Resumed scan {ScanRunId} was cancelled during initialization.", run.Id);
+                run.Status = ScanState.Cancelled;
+                run.EndTimeUtc = DateTime.UtcNow;
+                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, run.FilesDiscovered, run.DirectoriesCompleted, run.ErrorCount, CancellationToken.None).ConfigureAwait(false);
+                return run;
+            }
+            throw;
+        }
+        finally
+        {
+            lock (_stateLock)
+            {
+                _isRunning = false;
+                _isPaused = false;
+                if (run != null)
+                {
+                    _currentState = run.Status;
+                }
+            }
+        }
     }
 
     private async Task<ScanRun> ExecuteScanLoopAsync(
