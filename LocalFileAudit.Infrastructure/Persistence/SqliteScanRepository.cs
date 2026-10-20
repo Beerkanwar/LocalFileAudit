@@ -651,6 +651,25 @@ public sealed class SqliteScanRepository : IScanRepository
         try
         {
             await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+            if (report.Id > 0)
+            {
+                await using var updateCmd = connection.CreateCommand();
+                updateCmd.CommandText = @"
+                    UPDATE AiReports
+                    SET Status = @Status,
+                        ReportPath = @ReportPath,
+                        ErrorMessage = @ErrorMessage
+                    WHERE Id = @Id;
+                ";
+                updateCmd.Parameters.AddWithValue("@Id", report.Id);
+                updateCmd.Parameters.AddWithValue("@Status", report.Status.ToString());
+                updateCmd.Parameters.AddWithValue("@ReportPath", (object?)report.ReportPath ?? DBNull.Value);
+                updateCmd.Parameters.AddWithValue("@ErrorMessage", (object?)report.ErrorMessage ?? DBNull.Value);
+                await updateCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
             await using var cmd = connection.CreateCommand();
             cmd.CommandText = @"
                 INSERT INTO AiReports (ScanRunId, ModelName, PromptVersion, Status, GeneratedAtUtc, ReportPath, ErrorMessage)

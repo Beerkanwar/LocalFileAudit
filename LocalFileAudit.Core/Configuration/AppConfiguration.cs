@@ -47,9 +47,9 @@ public sealed class AiConfiguration
     public string Endpoint { get; set; } = "http://127.0.0.1:11434";
     public bool RequireLocalEndpoint { get; set; } = true;
     public bool SendDocumentContents { get; set; } = false;
-    public int TimeoutSeconds { get; set; } = 60;
+    public int TimeoutSeconds { get; set; } = 180;
     public string ModelName { get; set; } = "qwen2.5:7b";
-    public int MaxPayloadCandidates { get; set; } = 50;
+    public int MaxPayloadCandidates { get; set; } = 25;
 }
 
 /// <summary>

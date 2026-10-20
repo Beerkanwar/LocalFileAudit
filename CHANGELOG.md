@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.7] - 2026-10-21
+
+### Fixed
+- **AI Decision Support Review Accessibility & Open Review Feedback:**
+  - Resolved issue where clicking "📄 Open Review" appeared to do nothing: the button was active for failed or incomplete runs that had no generated report file.
+  - Added `HasReportFile` computed property on `AiReportRecord` and bound `IsEnabled="{Binding HasReportFile}"` on the "Open Review" button.
+  - Displayed `ErrorMessage` with tooltips directly in the AI Report History table for failed runs instead of an empty path column.
+  - Enhanced `OpenReportFileCommand` to provide immediate, descriptive status feedback if a report is missing or cannot be opened.
+- **Local AI Inference Timeout & Context Window Optimization:**
+  - Increased default `TimeoutSeconds` from 60s to 180s (3 minutes) to provide adequate headroom for local LLM loading and JSON generation on consumer GPUs and CPUs.
+  - Specified `num_ctx = 8192` in Ollama options for inference and chat, preventing llama-server from truncating prompts to 2048 tokens.
+  - Bounded inference candidate payload (default 25 candidates with concise rule explanations) to reduce token count by half, accelerating generation speed 2-3x.
+  - Differentiated client-side timeout from user cancellation: when the inference timeout elapses, the application now throws and reports a clear `TimeoutException` explaining that inference timed out and can be adjusted in Settings, instead of erroneously stating "AI inference cancelled by user".
+- **AI Reports Database State Reconciliation:**
+  - Fixed duplicate/zombie rows in `AiReports` by updating existing records by ID (`UPDATE AiReports ... WHERE Id = @Id`) rather than repeatedly inserting new rows on status transitions.
+  - Added startup initialization query to automatically reconcile any interrupted `Generating` records to `Failed`.
+
+---
+
 ## [1.3.6] - 2026-10-20
 
 ### Fixed

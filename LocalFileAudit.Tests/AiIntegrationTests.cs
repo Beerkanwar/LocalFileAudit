@@ -284,6 +284,99 @@ public class AiIntegrationTests : IDisposable
         Assert.Contains("LocalFileAudit — Storage Summary Report", htmlContent);
     }
 
+    [Fact]
+    public async Task InsertAiReportAsync_WhenIdGreaterThanZero_UpdatesExistingRecordWithoutDuplication()
+    {
+        var scanId = Guid.NewGuid();
+        var run = new ScanRun { Id = scanId, Status = ScanState.Completed, SelectedDrives = @"C:\" };
+        await _repository.CreateScanRunAsync(run);
+
+        var report = new AiReportRecord
+        {
+            ScanRunId = scanId,
+            ModelName = "qwen3:4b",
+            PromptVersion = "1.0",
+            Status = AiReportState.Generating,
+            GeneratedAtUtc = DateTime.UtcNow
+        };
+
+        await _repository.InsertAiReportAsync(report);
+        Assert.True(report.Id > 0);
+
+        var reportsAfterInitial = await _repository.GetAiReportsAsync(scanId);
+        Assert.Single(reportsAfterInitial);
+        Assert.Equal(AiReportState.Generating, reportsAfterInitial[0].Status);
+
+        // Update existing record
+        report.Status = AiReportState.Completed;
+        report.ReportPath = @"C:\FakeReports\AI-Review.md";
+        await _repository.InsertAiReportAsync(report);
+
+        var reportsAfterUpdate = await _repository.GetAiReportsAsync(scanId);
+        Assert.Single(reportsAfterUpdate);
+        Assert.Equal(AiReportState.Completed, reportsAfterUpdate[0].Status);
+        Assert.Equal(@"C:\FakeReports\AI-Review.md", reportsAfterUpdate[0].ReportPath);
+    }
+
+    [Fact]
+    public void AiReportRecord_HasReportFile_ReturnsExpectedBoolean()
+    {
+        var completedWithPath = new AiReportRecord
+        {
+            Status = AiReportState.Completed,
+            ReportPath = @"C:\Reports\AI-Review.md"
+        };
+        Assert.True(completedWithPath.HasReportFile);
+
+        var completedWithoutPath = new AiReportRecord
+        {
+            Status = AiReportState.Completed,
+            ReportPath = "   "
+        };
+        Assert.False(completedWithoutPath.HasReportFile);
+
+        var failed = new AiReportRecord
+        {
+            Status = AiReportState.Failed,
+            ReportPath = null,
+            ErrorMessage = "Timed out"
+        };
+        Assert.False(failed.HasReportFile);
+
+        var generating = new AiReportRecord
+        {
+            Status = AiReportState.Generating,
+            ReportPath = null
+        };
+        Assert.False(generating.HasReportFile);
+    }
+
+    [Fact]
+    public async Task OllamaClient_WhenTimeoutOccurs_ThrowsTimeoutExceptionWithGuidance()
+    {
+        var mockHandler = new MockHttpMessageHandler
+        {
+            Handler = _ =>
+            {
+                Thread.Sleep(1500);
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"response\":\"{}\"}") };
+            }
+        };
+        var httpClient = new HttpClient(mockHandler);
+
+        var config = _configService.Current;
+        config.AI.TimeoutSeconds = 1;
+        await _configService.SaveAsync(config);
+
+        var client = new OllamaClient(httpClient, _configService, NullLogger<OllamaClient>.Instance);
+
+        var ex = await Assert.ThrowsAsync<TimeoutException>(() =>
+            client.GenerateJsonAsync("http://127.0.0.1:11434", "qwen3:4b", "system", "prompt"));
+
+        Assert.Contains("timed out after 1s", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Settings", ex.Message);
+    }
+
     public void Dispose()
     {
         try

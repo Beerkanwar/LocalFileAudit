@@ -82,4 +82,6 @@ public sealed class AiReportRecord
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
     public string? ReportPath { get; set; }
     public string? ErrorMessage { get; set; }
+
+    public bool HasReportFile => Status == AiReportState.Completed && !string.IsNullOrWhiteSpace(ReportPath);
 }

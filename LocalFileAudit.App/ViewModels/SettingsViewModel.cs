@@ -27,8 +27,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private string _aiEndpoint = string.Empty;
     private bool _requireLocalEndpoint;
     private string _aiModelName = "qwen2.5:7b";
-    private int _aiTimeoutSeconds = 60;
-    private int _aiMaxPayloadCandidates = 50;
+    private int _aiTimeoutSeconds = 180;
+    private int _aiMaxPayloadCandidates = 25;
     private bool _redactFilePaths;
     private int _logRetainDays;
     private string _statusMessage = string.Empty;
@@ -207,8 +207,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
         AiEndpoint = cfg.AI.Endpoint;
         RequireLocalEndpoint = cfg.AI.RequireLocalEndpoint;
         AiModelName = string.IsNullOrWhiteSpace(cfg.AI.ModelName) ? "qwen2.5:7b" : cfg.AI.ModelName;
-        AiTimeoutSeconds = cfg.AI.TimeoutSeconds > 0 ? cfg.AI.TimeoutSeconds : 60;
-        AiMaxPayloadCandidates = cfg.AI.MaxPayloadCandidates > 0 ? cfg.AI.MaxPayloadCandidates : 50;
+        AiTimeoutSeconds = cfg.AI.TimeoutSeconds > 0 ? cfg.AI.TimeoutSeconds : 180;
+        AiMaxPayloadCandidates = cfg.AI.MaxPayloadCandidates > 0 ? cfg.AI.MaxPayloadCandidates : 25;
 
         RedactFilePaths = cfg.Logging.RedactFilePaths;
         LogRetainDays = cfg.Logging.RetainDays;

@@ -254,9 +254,14 @@ public sealed partial class AiReportsViewModel : ViewModelBase
             StatusMessage = $"AI decision support complete. {Recommendations.Count} recommendations generated and saved to AI-Review.md and AI-Review-Table.csv/.md.";
             await RefreshHistoryAsync();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_aiCts?.IsCancellationRequested == true)
         {
             StatusMessage = "AI inference cancelled by user. Deterministic reports remain unaffected.";
+        }
+        catch (TimeoutException tex)
+        {
+            StatusMessage = $"{tex.Message} Deterministic analysis remains unaffected.";
+            _logger.LogWarning(tex, "AI analysis execution timed out.");
         }
         catch (Exception ex)
         {
@@ -300,9 +305,19 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    public void OpenReportFile(string reportPath)
+    public void OpenReportFile(string? reportPath)
     {
-        if (string.IsNullOrWhiteSpace(reportPath) || !File.Exists(reportPath)) return;
+        if (string.IsNullOrWhiteSpace(reportPath))
+        {
+            StatusMessage = "No report file is available for this entry. Reports are only generated when AI analysis completes successfully.";
+            return;
+        }
+
+        if (!File.Exists(reportPath))
+        {
+            StatusMessage = $"Report file not found on disk: {reportPath}";
+            return;
+        }
 
         try
         {
@@ -311,10 +326,12 @@ public sealed partial class AiReportsViewModel : ViewModelBase
                 FileName = reportPath,
                 UseShellExecute = true
             });
+            StatusMessage = $"Opened AI Review report: {Path.GetFileName(reportPath)}";
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to open report file {Path}", reportPath);
+            StatusMessage = $"Could not open report file: {ex.Message}";
         }
     }
 
@@ -363,6 +380,7 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     partial void OnSelectedScanChanged(ScanRun? value)
     {
         _ = LoadChatHistoryAsync(value?.Id);
+        _ = RefreshHistoryAsync();
     }
 
     public async Task LoadChatHistoryAsync(Guid? scanId)

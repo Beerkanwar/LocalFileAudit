@@ -172,6 +172,13 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        // Reset any stranded in-progress AI reports from previous process termination
+        await using (var cleanCmd = connection.CreateCommand())
+        {
+            cleanCmd.CommandText = "UPDATE AiReports SET Status = 'Failed', ErrorMessage = 'Inference interrupted by application exit' WHERE Status = 'Generating';";
+            await cleanCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         _logger.LogInformation("Database schema, indexes, and WAL checkpoint verified.");
     }
 }
