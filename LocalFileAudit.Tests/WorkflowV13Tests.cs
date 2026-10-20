@@ -275,12 +275,16 @@ public sealed class WorkflowV13Tests : IDisposable
         Assert.Contains("/L", previewContent);
         Assert.Contains("[PREVIEW ONLY]", previewContent);
         Assert.Contains("REVIEW BEFORE RUNNING", previewContent);
+        Assert.Contains("PSNativeCommandUseErrorActionPreference", previewContent);
+        Assert.Contains("$LASTEXITCODE -ge 8", previewContent);
 
         // Check real copy script contains prominent safety review header
         var copyContent = await File.ReadAllTextAsync(result.CopyScriptPath);
         Assert.Contains("REVIEW BEFORE RUNNING", copyContent);
         Assert.Contains("NEVER executes file operations", copyContent);
         Assert.Contains("robocopy", copyContent);
+        Assert.Contains("PSNativeCommandUseErrorActionPreference", copyContent);
+        Assert.Contains("$LASTEXITCODE -ge 8", copyContent);
 
         // Verify CSV manifest
         var manifestLines = await File.ReadAllLinesAsync(result.ManifestCsvPath);
@@ -398,6 +402,63 @@ public sealed class WorkflowV13Tests : IDisposable
         // Verify version matches 1.3.0
         var currentVersion = AppVersion.Current;
         Assert.Equal("1.3.0", currentVersion);
+    }
+
+    [Fact]
+    public async Task ArchiveVerification_ConcurrentHashing_ProcessesMultipleFilesCorrectly()
+    {
+        var sourceDir = Path.Combine(_testRoot, "Source_Concurrent");
+        var destDir = Path.Combine(_testRoot, "Dest_Concurrent");
+        Directory.CreateDirectory(sourceDir);
+        Directory.CreateDirectory(destDir);
+
+        for (int i = 0; i < 6; i++)
+        {
+            var content = $"Batch content for file index {i} with padding text";
+            await File.WriteAllTextAsync(Path.Combine(sourceDir, $"file_{i}.dat"), content);
+            await File.WriteAllTextAsync(Path.Combine(destDir, $"file_{i}.dat"), content);
+        }
+
+        var verifier = new ArchiveVerificationService(_env, NullLogger<ArchiveVerificationService>.Instance);
+        var summary = await verifier.VerifyArchiveAsync(sourceDir, destDir, calculateSha256: true);
+
+        Assert.Equal(6, summary.Items.Count);
+        Assert.Equal(6, summary.MatchCount);
+        Assert.Equal(0, summary.HashMismatchCount);
+        Assert.All(summary.Items, item =>
+        {
+            Assert.Equal(VerificationStatus.Match, item.Status);
+            Assert.NotNull(item.SourceHash);
+            Assert.Equal(item.SourceHash, item.DestinationHash);
+        });
+    }
+
+    [Fact]
+    public async Task ArchivePlanner_MarkBatchVerifiedAsync_ConcurrentUpdates_PreservesAllUpdates()
+    {
+        var planner = new ArchivePlannerService(_env, NullLogger<ArchivePlannerService>.Instance);
+        var plan = new ArchivePlan();
+
+        var b1 = new ArchiveBatch { BatchName = "Batch 1", SourcePath = @"C:\A", PlannedDestinationPath = @"D:\A" };
+        var b2 = new ArchiveBatch { BatchName = "Batch 2", SourcePath = @"C:\B", PlannedDestinationPath = @"D:\B" };
+        var b3 = new ArchiveBatch { BatchName = "Batch 3", SourcePath = @"C:\C", PlannedDestinationPath = @"D:\C" };
+
+        plan.Batches.Add(b1);
+        plan.Batches.Add(b2);
+        plan.Batches.Add(b3);
+
+        await planner.SavePlanAsync(plan);
+
+        // Run concurrent verification marks
+        await Task.WhenAll(
+            planner.MarkBatchVerifiedAsync(b1.Id),
+            planner.MarkBatchVerifiedAsync(b2.Id)
+        );
+
+        var reloaded = await planner.LoadPlanAsync();
+        Assert.True(reloaded.Batches.First(b => b.Id == b1.Id).IsVerified);
+        Assert.True(reloaded.Batches.First(b => b.Id == b2.Id).IsVerified);
+        Assert.False(reloaded.Batches.First(b => b.Id == b3.Id).IsVerified);
     }
 
     #endregion

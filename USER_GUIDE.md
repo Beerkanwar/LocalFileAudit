@@ -104,6 +104,8 @@ Navigate to **Archive Verifier**:
    - Maps relative paths and detects: `Match`, `MissingAtDestination`, `SizeMismatch`, `HashMismatch`, and `ExtraAtDestination`.
 4. Click **📥 Export Verification CSV** to save `ArchiveVerification-<timestamp>.csv`.
 
+> **Note on Empty Directories:** The Archive Verifier indexes and compares file records only. Empty folders (even if replicated via Robocopy `/E`) are not tracked or flagged in the verification report.
+
 ---
 
 ## 9. Local AI Reports & Follow-up Chat (Ollama)

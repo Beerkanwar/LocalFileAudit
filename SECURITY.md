@@ -21,7 +21,7 @@ LocalFileAudit operates under a defense-in-depth security model:
 
 ### 1.1 Read-Only Safety Guarantees
 - **No File Mutation:** Scanning and duplicate hashing use `FileAccess.Read` and `FileShare.Read`. The application codebase does not include file deletion, modification, or movement APIs on user files.
-- **Code Audit:** All `File.Move` operations in the codebase are restricted to application-owned configuration files (`appsettings.json`) and temporary report staging directories (`.staging_<guid>`).
+- **Code Audit:** All `File.Move` and temporary `File.Delete` operations in the codebase are strictly restricted to application-owned configuration files (`config.json`), temporary report staging directories (`.staging_<guid>`), archive planner state (`.staging_plan_<guid>.tmp`), and archive verification staging exports (`.staging_verify_<guid>.tmp`). The application contains zero destructive APIs targeting user files.
 - **No Automatic Actions:** When duplicates or cleanup candidates are identified, LocalFileAudit provides advisory reports only. File manipulation must be manually performed by the user using Windows Explorer or administrative shell commands.
 
 ### 1.2 Network Isolation & Loopback Enforcement

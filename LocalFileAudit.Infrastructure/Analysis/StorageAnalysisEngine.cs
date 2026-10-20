@@ -68,8 +68,34 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             }
         }
 
-        var firstRoot = run.SelectedDrives?.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "C:\\";
-        var volumeSpace = Scanning.FileAllocationHelper.GetVolumeSpace(firstRoot);
+        var roots = run.SelectedDrives?.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
+        long totalCapacity = 0;
+        long totalFree = 0;
+        var inspectedDrives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var r in roots)
+        {
+            var pathRoot = Path.GetPathRoot(r.Trim());
+            if (!string.IsNullOrEmpty(pathRoot) && inspectedDrives.Add(pathRoot))
+            {
+                var space = Scanning.FileAllocationHelper.GetVolumeSpace(pathRoot);
+                if (space.HasValue)
+                {
+                    totalCapacity += space.Value.TotalBytes;
+                    totalFree += space.Value.FreeBytes;
+                }
+            }
+        }
+
+        if (inspectedDrives.Count == 0)
+        {
+            var space = Scanning.FileAllocationHelper.GetVolumeSpace("C:\\");
+            if (space.HasValue)
+            {
+                totalCapacity = space.Value.TotalBytes;
+                totalFree = space.Value.FreeBytes;
+            }
+        }
 
         return new StorageMetricsSummary
         {
@@ -79,8 +105,8 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             TotalLogicalSizeBytes = totalBytes,
             CloudPlaceholderCount = cloudCount,
             CloudPlaceholderSizeBytes = cloudBytes,
-            VolumeCapacityBytes = volumeSpace?.TotalBytes ?? 0,
-            VolumeFreeBytes = volumeSpace?.FreeBytes ?? 0,
+            VolumeCapacityBytes = totalCapacity,
+            VolumeFreeBytes = totalFree,
             ErrorCount = run.ErrorCount,
             IsScanComplete = run.Status == ScanState.Completed,
             SelectedDrives = run.SelectedDrives ?? string.Empty,

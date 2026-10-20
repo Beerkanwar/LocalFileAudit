@@ -25,7 +25,7 @@ public static class AppVersion
         }
 
         var ver = appAssembly.GetName().Version;
-        return ver != null ? $"{ver.Major}.{ver.Minor}.{ver.Build}" : "1.1.0";
+        return ver != null ? $"{ver.Major}.{ver.Minor}.{ver.Build}" : "0.0.0-unknown";
     });
 
     public static string Current => _current.Value;

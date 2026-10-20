@@ -17,6 +17,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Verify tag matches Directory.Build.props version
+      shell: pwsh
+      run: |
+        [xml]$props = Get-Content Directory.Build.props
+        $v = $props.Project.PropertyGroup.Version | Select-Object -First 1
+        $tag = '${{ github.ref_name }}'.TrimStart('v')
+        if ($v -ne $tag) { throw "Tag '${{ github.ref_name }}' does not match Directory.Build.props version '$v'" }
+
     - name: Setup .NET SDK
       uses: actions/setup-dotnet@v4
       with:
@@ -42,32 +50,36 @@ jobs:
         # Ensure no PDBs exist
         Get-ChildItem -Path ./publish-release -Filter *.pdb -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
+        $zipName = "LocalFileAudit-${{ github.ref_name }}-win-x64.zip"
         # Create zip archive
-        Compress-Archive -Path ./publish-release/* -DestinationPath ./LocalFileAudit-win-x64.zip -Force
+        Compress-Archive -Path ./publish-release/* -DestinationPath ./$zipName -Force
 
         # Generate SHA256 checksum
-        $hash = (Get-FileHash -Algorithm SHA256 ./LocalFileAudit-win-x64.zip).Hash
-        "$hash  LocalFileAudit-win-x64.zip" | Out-File -FilePath ./LocalFileAudit-win-x64.zip.sha256 -Encoding ascii
+        $hash = (Get-FileHash -Algorithm SHA256 ./$zipName).Hash
+        "$hash  $zipName" | Out-File -FilePath ./$zipName.sha256 -Encoding ascii
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          LocalFileAudit-win-x64.zip
-          LocalFileAudit-win-x64.zip.sha256
+          LocalFileAudit-${{ github.ref_name }}-win-x64.zip
+          LocalFileAudit-${{ github.ref_name }}-win-x64.zip.sha256
         draft: false
         prerelease: false
+        generate_release_notes: true
         body: |
           ## LocalFileAudit ${{ github.ref_name }} 🔍
 
-          ### Highlights
+          ### Quick Start
+          Extract the full zip archive, then run `LocalFileAudit.App.exe` (.NET runtime is embedded; no separate installation required).
+
+          ### Core Guarantees
           - **100% Read-Only Safety:** Zero file modifications, deletions, or moves.
-          - **Offline & Private:** All inventory scanning and deterministic metrics run entirely locally.
-          - **Self-Contained Executable:** Standalone 64-bit Windows binary (.NET runtime embedded; no prerequisites required).
+          - **Offline & Private:** All inventory scanning, metrics, and hashing run entirely on your local machine.
           - **Crash-Safe Persistence:** SQLite Write-Ahead Logging (WAL) engine.
-          - **Two-Stage Duplicates:** Exact-size clustering with asynchronous SHA-256 cryptographic verification.
-          - **Atomic Reports:** Multi-format exports (Markdown, HTML, CSVs, Manifest).
-          - **Optional Local AI Review:** Connect to local Ollama (`http://127.0.0.1:11434`) for narrative analysis.
+          - **Archive Verification & Planning:** Read-only comparison with SHA-256 and reviewable PowerShell script generation.
+          - **Run Comparison:** Historical scan diffing to track new, deleted, and modified files.
+          - **Optional Local AI Review:** Local Ollama integration (`http://127.0.0.1:11434`) with follow-up chat support.
 
           ---
 
@@ -79,4 +91,4 @@ jobs:
           1. Click **More info**.
           2. Click **Run anyway**.
 
-          You can independently verify the binary integrity using the provided `LocalFileAudit-win-x64.zip.sha256` checksum.
+          You can independently verify binary integrity using the provided `.sha256` checksum file.

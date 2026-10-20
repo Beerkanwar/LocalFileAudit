@@ -35,6 +35,18 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            return await LoadPlanUnlockedAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    private async Task<ArchivePlan> LoadPlanUnlockedAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
             if (!File.Exists(_planFilePath))
             {
                 return new ArchivePlan();
@@ -49,10 +61,6 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             _logger.LogError(ex, "Failed to load archive plan from {Path}. Returning empty plan.", _planFilePath);
             return new ArchivePlan();
         }
-        finally
-        {
-            _lock.Release();
-        }
     }
 
     public async Task SavePlanAsync(ArchivePlan plan, CancellationToken cancellationToken = default)
@@ -62,25 +70,30 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            plan.LastModifiedUtc = DateTime.UtcNow;
-            var json = JsonSerializer.Serialize(plan, JsonOptions);
-
-            var dir = Path.GetDirectoryName(_planFilePath);
-            if (!string.IsNullOrEmpty(dir))
-            {
-                Directory.CreateDirectory(dir);
-            }
-
-            var tempPath = Path.Combine(dir ?? Path.GetTempPath(), $".staging_plan_{Guid.NewGuid():N}.tmp");
-            await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-            File.Move(tempPath, _planFilePath, overwrite: true);
-
-            _logger.LogInformation("Successfully saved archive plan ({BatchCount} batches) to {Path}", plan.Batches.Count, _planFilePath);
+            await SavePlanUnlockedAsync(plan, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _lock.Release();
         }
+    }
+
+    private async Task SavePlanUnlockedAsync(ArchivePlan plan, CancellationToken cancellationToken)
+    {
+        plan.LastModifiedUtc = DateTime.UtcNow;
+        var json = JsonSerializer.Serialize(plan, JsonOptions);
+
+        var dir = Path.GetDirectoryName(_planFilePath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var tempPath = Path.Combine(dir ?? Path.GetTempPath(), $".staging_plan_{Guid.NewGuid():N}.tmp");
+        await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+        File.Move(tempPath, _planFilePath, overwrite: true);
+
+        _logger.LogInformation("Successfully saved archive plan ({BatchCount} batches) to {Path}", plan.Batches.Count, _planFilePath);
     }
 
     public (long TotalBytes, long FreeBytes)? GetDestinationFreeSpace(string destinationPath)
@@ -90,14 +103,22 @@ public sealed class ArchivePlannerService : IArchivePlannerService
 
     public async Task MarkBatchVerifiedAsync(Guid batchId, CancellationToken cancellationToken = default)
     {
-        var plan = await LoadPlanAsync(cancellationToken).ConfigureAwait(false);
-        var batch = plan.Batches.FirstOrDefault(b => b.Id == batchId);
-        if (batch != null)
+        await _lock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            batch.IsVerified = true;
-            batch.VerifiedAtUtc = DateTime.UtcNow;
-            await SavePlanAsync(plan, cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Marked batch {BatchId} as verified in archive plan.", batchId);
+            var plan = await LoadPlanUnlockedAsync(cancellationToken).ConfigureAwait(false);
+            var batch = plan.Batches.FirstOrDefault(b => b.Id == batchId);
+            if (batch != null)
+            {
+                batch.IsVerified = true;
+                batch.VerifiedAtUtc = DateTime.UtcNow;
+                await SavePlanUnlockedAsync(plan, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Marked batch {BatchId} as verified in archive plan.", batchId);
+            }
+        }
+        finally
+        {
+            _lock.Release();
         }
     }
 
@@ -142,6 +163,9 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         previewSb.AppendLine("# ==========================================================================");
         previewSb.AppendLine();
         previewSb.AppendLine("$ErrorActionPreference = 'Stop'");
+        previewSb.AppendLine("if (Test-Path variable:global:PSNativeCommandUseErrorActionPreference) {");
+        previewSb.AppendLine("    $PSNativeCommandUseErrorActionPreference = $false");
+        previewSb.AppendLine("}");
         previewSb.AppendLine("$logDir = Join-Path $PSScriptRoot 'logs'");
         previewSb.AppendLine("if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }");
         previewSb.AppendLine();
@@ -156,6 +180,9 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             previewSb.AppendLine("if (Test-Path $src) {");
             previewSb.AppendLine("    # Robocopy /L = List only (no file copy occurs)");
             previewSb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /L /NP /R:1 /W:1 /LOG+:$log");
+            previewSb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
+            previewSb.AppendLine($"        throw \"Robocopy preview failed with exit code $LASTEXITCODE for batch '{b.BatchName}'. Check log: $log\"");
+            previewSb.AppendLine("    }");
             previewSb.AppendLine("} else {");
             previewSb.AppendLine("    Write-Warning \"Source path not found: $src\"");
             previewSb.AppendLine("}");
@@ -174,6 +201,9 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         copySb.AppendLine("# ==========================================================================");
         copySb.AppendLine();
         copySb.AppendLine("$ErrorActionPreference = 'Stop'");
+        copySb.AppendLine("if (Test-Path variable:global:PSNativeCommandUseErrorActionPreference) {");
+        copySb.AppendLine("    $PSNativeCommandUseErrorActionPreference = $false");
+        copySb.AppendLine("}");
         copySb.AppendLine("$logDir = Join-Path $PSScriptRoot 'logs'");
         copySb.AppendLine("if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }");
         copySb.AppendLine();
@@ -188,6 +218,9 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             copySb.AppendLine("if (Test-Path $src) {");
             copySb.AppendLine("    # Copy with data, attributes, timestamps. Safe retries, skip junctions.");
             copySb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /NP /R:2 /W:3 /LOG+:$log");
+            copySb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
+            copySb.AppendLine($"        throw \"Robocopy copy failed with exit code $LASTEXITCODE for batch '{b.BatchName}'. Check log: $log\"");
+            copySb.AppendLine("    }");
             copySb.AppendLine("} else {");
             copySb.AppendLine("    Write-Warning \"Source path not found: $src\"");
             copySb.AppendLine("}");

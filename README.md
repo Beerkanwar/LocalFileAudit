@@ -73,9 +73,24 @@ Built with C# and .NET 9 (WPF), LocalFileAudit provides deep visibility into you
 
 ## 🚀 Getting Started
 
-### 1. Build from Source
+### 1. Download Latest Release (Recommended)
 
-Clone the repository and build using the .NET 9 SDK:
+Pre-built self-contained binaries for 64-bit Windows are available on GitHub Releases:
+
+1. Go to the **[Latest Release on GitHub](https://github.com/Beerkanwar/LocalFileAudit/releases/latest)**.
+2. Download `LocalFileAudit-v<version>-win-x64.zip` and the corresponding `.sha256` checksum file.
+3. *(Optional)* Verify archive integrity in PowerShell:
+   ```powershell
+   (Get-FileHash .\LocalFileAudit-v*.zip -Algorithm SHA256).Hash
+   ```
+4. **Extract the full ZIP archive** to a folder of your choice (do not run `LocalFileAudit.App.exe` inside the archive without extracting, as native satellite libraries like `e_sqlite3.dll` must remain alongside it).
+5. Double-click **`LocalFileAudit.App.exe`** to launch. No separate .NET runtime installation is required.
+
+---
+
+### 2. Build from Source (Alternative)
+
+If you prefer building from source, clone the repository and build using the .NET 9 SDK:
 
 ```powershell
 # Clone the repository
@@ -90,13 +105,8 @@ dotnet test LocalFileAudit.slnx --configuration Release
 
 # Build the desktop application
 dotnet build LocalFileAudit.slnx --configuration Release
-```
 
-### 2. Publishing Self-Contained Release
-
-To build a standalone executable that does not require .NET to be pre-installed on the target machine:
-
-```powershell
+# Publish self-contained executable to ./publish/
 dotnet publish LocalFileAudit.App/LocalFileAudit.App.csproj `
   -c Release `
   -r win-x64 `
@@ -106,7 +116,7 @@ dotnet publish LocalFileAudit.App/LocalFileAudit.App.csproj `
   -o ./publish/
 ```
 
-The resulting executable will be available in `./publish/LocalFileAudit.App.exe`.
+The resulting application files will be available in `./publish/`. Extract or keep the folder contents intact when moving.
 
 ---
 

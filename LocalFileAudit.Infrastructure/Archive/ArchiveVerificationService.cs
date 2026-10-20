@@ -64,9 +64,9 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             VerifiedAtUtc = DateTime.UtcNow
         };
 
-        // 1. Enumerate source files
+        // 1. Enumerate source files (Skipping junctions/reparse points to avoid runaway loops & phantom missing files)
         var sourceFiles = new Dictionary<string, (string FullPath, long SizeBytes)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.EnumerateFiles(fullSource, "*", SearchOption.AllDirectories))
+        foreach (var file in EnumerateFilesSafeNoReparse(fullSource, _logger, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -83,9 +83,11 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             }
         }
 
-        // 2. Enumerate destination files
+        progress?.Report(25.0);
+
+        // 2. Enumerate destination files (Skipping junctions/reparse points)
         var destFiles = new Dictionary<string, (string FullPath, long SizeBytes)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in Directory.EnumerateFiles(fullDest, "*", SearchOption.AllDirectories))
+        foreach (var file in EnumerateFilesSafeNoReparse(fullDest, _logger, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -102,11 +104,12 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             }
         }
 
+        progress?.Report(50.0);
+
         var allRelPaths = new HashSet<string>(sourceFiles.Keys, StringComparer.OrdinalIgnoreCase);
         allRelPaths.UnionWith(destFiles.Keys);
 
-        var totalOperations = allRelPaths.Count;
-        var processedOperations = 0;
+        var hashCandidates = new List<ArchiveVerificationItem>();
 
         foreach (var relPath in allRelPaths.OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
         {
@@ -146,25 +149,9 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
                 }
                 else if (calculateSha256)
                 {
-                    // Compute SHA-256 strictly read-only
-                    var srcHash = await ComputeFileSha256ReadOnlyAsync(sourceInfo.FullPath, cancellationToken).ConfigureAwait(false);
-                    var dstHash = await ComputeFileSha256ReadOnlyAsync(destInfo.FullPath, cancellationToken).ConfigureAwait(false);
-
-                    item.SourceHash = srcHash;
-                    item.DestinationHash = dstHash;
-
-                    if (!string.Equals(srcHash, dstHash, StringComparison.OrdinalIgnoreCase))
-                    {
-                        item.Status = VerificationStatus.HashMismatch;
-                        item.Details = "Hash mismatch: File sizes match, but byte content diverges.";
-                        summary.HashMismatchCount++;
-                    }
-                    else
-                    {
-                        item.Status = VerificationStatus.Match;
-                        item.Details = "Verified match (size and SHA-256 hash match).";
-                        summary.MatchCount++;
-                    }
+                    // Candidate for concurrent SHA-256 verification
+                    item.Status = VerificationStatus.Match;
+                    hashCandidates.Add(item);
                 }
                 else
                 {
@@ -175,12 +162,56 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             }
 
             summary.Items.Add(item);
-            processedOperations++;
+        }
 
-            if (totalOperations > 0)
+        // Bounded concurrent hashing (Feature M1)
+        if (calculateSha256 && hashCandidates.Count > 0)
+        {
+            var maxConcurrency = Math.Clamp(System.Environment.ProcessorCount, 2, 8);
+            using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+            var totalHashOperations = hashCandidates.Count;
+            var processedHashOperations = 0;
+
+            var hashTasks = hashCandidates.Select(async item =>
             {
-                progress?.Report((double)processedOperations / totalOperations * 100.0);
-            }
+                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    var srcHashTask = ComputeFileSha256ReadOnlyAsync(item.SourceFullPath, cancellationToken);
+                    var dstHashTask = ComputeFileSha256ReadOnlyAsync(item.DestinationFullPath, cancellationToken);
+                    await Task.WhenAll(srcHashTask, dstHashTask).ConfigureAwait(false);
+
+                    item.SourceHash = await srcHashTask;
+                    item.DestinationHash = await dstHashTask;
+
+                    if (!string.Equals(item.SourceHash, item.DestinationHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        item.Status = VerificationStatus.HashMismatch;
+                        item.Details = "Hash mismatch: File sizes match, but byte content diverges.";
+                    }
+                    else
+                    {
+                        item.Status = VerificationStatus.Match;
+                        item.Details = "Verified match (size and SHA-256 hash match).";
+                    }
+                }
+                finally
+                {
+                    semaphore.Release();
+                    var done = Interlocked.Increment(ref processedHashOperations);
+                    progress?.Report(50.0 + ((double)done / totalHashOperations) * 50.0);
+                }
+            });
+
+            await Task.WhenAll(hashTasks).ConfigureAwait(false);
+
+            // Re-aggregate counts based on hash verification results
+            summary.MatchCount = summary.Items.Count(i => i.Status == VerificationStatus.Match);
+            summary.HashMismatchCount = summary.Items.Count(i => i.Status == VerificationStatus.HashMismatch);
+        }
+        else
+        {
+            progress?.Report(100.0);
         }
 
         sw.Stop();
@@ -189,6 +220,63 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             sw.ElapsedMilliseconds, summary.MatchCount, summary.MissingCount, summary.SizeMismatchCount, summary.HashMismatchCount, summary.ExtraCount);
 
         return summary;
+    }
+
+    private static IEnumerable<string> EnumerateFilesSafeNoReparse(string rootDirectory, ILogger logger, CancellationToken cancellationToken)
+    {
+        var stack = new Stack<string>();
+        stack.Push(rootDirectory);
+
+        while (stack.Count > 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var currentDir = stack.Pop();
+
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(currentDir);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to enumerate files in directory {Directory}", currentDir);
+                continue;
+            }
+
+            foreach (var file in files)
+            {
+                yield return file;
+            }
+
+            string[] subdirs;
+            try
+            {
+                subdirs = Directory.GetDirectories(currentDir);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to enumerate subdirectories in {Directory}", currentDir);
+                continue;
+            }
+
+            foreach (var subdir in subdirs)
+            {
+                try
+                {
+                    var dirInfo = new DirectoryInfo(subdir);
+                    if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                    {
+                        logger.LogDebug("Skipping reparse point / junction in archive verification: {Path}", subdir);
+                        continue;
+                    }
+                    stack.Push(subdir);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Failed to inspect directory attributes for {Directory}", subdir);
+                }
+            }
+        }
     }
 
     public async Task<string> ExportVerificationCsvAsync(
