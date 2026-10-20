@@ -1,4 +1,5 @@
 using System.Data;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Data.Sqlite;
@@ -454,7 +455,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 Operation = reader.GetString(reader.GetOrdinal("Operation")),
                 ErrorCode = reader.IsDBNull(reader.GetOrdinal("ErrorCode")) ? null : reader.GetString(reader.GetOrdinal("ErrorCode")),
                 ErrorMessage = reader.GetString(reader.GetOrdinal("ErrorMessage")),
-                TimestampUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("TimestampUtc")))
+                TimestampUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("TimestampUtc")))
             });
         }
 
@@ -690,7 +691,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 ModelName = reader.GetString(reader.GetOrdinal("ModelName")),
                 PromptVersion = reader.GetString(reader.GetOrdinal("PromptVersion")),
                 Status = Enum.Parse<AiReportState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true),
-                GeneratedAtUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("GeneratedAtUtc"))),
+                GeneratedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("GeneratedAtUtc"))),
                 ReportPath = reader.IsDBNull(reader.GetOrdinal("ReportPath")) ? null : reader.GetString(reader.GetOrdinal("ReportPath")),
                 ErrorMessage = reader.IsDBNull(reader.GetOrdinal("ErrorMessage")) ? null : reader.GetString(reader.GetOrdinal("ErrorMessage"))
             });
@@ -841,8 +842,8 @@ public sealed class SqliteScanRepository : IScanRepository
             var extension = reader.GetString(1);
             var baselineBytes = reader.GetInt64(2);
             var targetBytes = reader.GetInt64(3);
-            DateTime? baseMod = reader.IsDBNull(4) ? null : DateTime.Parse(reader.GetString(4));
-            DateTime? targetMod = reader.IsDBNull(5) ? null : DateTime.Parse(reader.GetString(5));
+            DateTime? baseMod = reader.IsDBNull(4) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(4));
+            DateTime? targetMod = reader.IsDBNull(5) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(5));
             var deltaTypeStr = reader.GetString(6);
             var deltaType = Enum.Parse<DeltaType>(deltaTypeStr, ignoreCase: true);
 
@@ -990,7 +991,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
                 Role = reader.GetString(reader.GetOrdinal("Role")),
                 Content = reader.GetString(reader.GetOrdinal("Content")),
-                TimestampUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("TimestampUtc"))),
+                TimestampUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("TimestampUtc"))),
                 ContextCandidateIds = reader.IsDBNull(reader.GetOrdinal("ContextCandidateIds")) ? null : reader.GetString(reader.GetOrdinal("ContextCandidateIds"))
             });
         }
@@ -1026,11 +1027,11 @@ public sealed class SqliteScanRepository : IScanRepository
             FileName = reader.GetString(reader.GetOrdinal("FileName")),
             Extension = reader.GetString(reader.GetOrdinal("Extension")),
             SizeBytes = reader.GetInt64(reader.GetOrdinal("SizeBytes")),
-            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
-            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
-            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
+            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
+            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
+            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
             Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
-            ObservedAtUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
+            ObservedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
             MetadataStatus = Enum.Parse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true),
             HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
             HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))
@@ -1042,8 +1043,8 @@ public sealed class SqliteScanRepository : IScanRepository
         return new ScanRun
         {
             Id = Guid.Parse(reader.GetString(reader.GetOrdinal("Id"))),
-            StartTimeUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("StartTimeUtc"))),
-            EndTimeUtc = reader.IsDBNull(reader.GetOrdinal("EndTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("EndTimeUtc"))),
+            StartTimeUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("StartTimeUtc"))),
+            EndTimeUtc = reader.IsDBNull(reader.GetOrdinal("EndTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("EndTimeUtc"))),
             Status = Enum.Parse<ScanState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true),
             SelectedDrives = reader.GetString(reader.GetOrdinal("SelectedDrives")),
             ConfigurationSnapshot = reader.GetString(reader.GetOrdinal("ConfigurationSnapshot")),
@@ -1064,7 +1065,7 @@ public sealed class SqliteScanRepository : IScanRepository
             ParentPath = reader.IsDBNull(reader.GetOrdinal("ParentPath")) ? null : reader.GetString(reader.GetOrdinal("ParentPath")),
             Status = Enum.Parse<DirectoryState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true),
             FilesProcessed = reader.GetInt32(reader.GetOrdinal("FilesProcessed")),
-            LastCheckpointUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("LastCheckpointUtc"))),
+            LastCheckpointUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastCheckpointUtc"))),
             LastError = reader.IsDBNull(reader.GetOrdinal("LastError")) ? null : reader.GetString(reader.GetOrdinal("LastError"))
         };
     }
@@ -1097,7 +1098,7 @@ public sealed class SqliteScanRepository : IScanRepository
             var fileName = reader.IsDBNull(7) ? string.Empty : reader.GetString(7);
             var extension = reader.IsDBNull(8) ? string.Empty : reader.GetString(8);
             var sizeBytes = reader.IsDBNull(9) ? 0L : reader.GetInt64(9);
-            var lastWrite = reader.IsDBNull(10) ? (DateTime?)null : DateTime.Parse(reader.GetString(10));
+            var lastWrite = reader.IsDBNull(10) ? (DateTime?)null : UtcDateTimeHelper.ParseUtc(reader.GetString(10));
 
             Enum.TryParse<CandidateCategory>(categoryStr, out var cat);
 

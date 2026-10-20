@@ -173,15 +173,19 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         foreach (var b in plan.Batches)
         {
             var cleanName = SanitizeIdentifier(b.BatchName);
-            previewSb.AppendLine($"Write-Host '--- [PREVIEW ONLY] Processing Batch: {b.BatchName} ---' -ForegroundColor Cyan");
-            previewSb.AppendLine($"$src = '{b.SourcePath.Replace("'", "''")}'");
-            previewSb.AppendLine($"$dst = '{b.PlannedDestinationPath.Replace("'", "''")}'");
+            var escapedBatchName = EscapePowerShellSingleQuotedLiteral(b.BatchName);
+            var escapedSrc = EscapePowerShellSingleQuotedLiteral(b.SourcePath);
+            var escapedDst = EscapePowerShellSingleQuotedLiteral(b.PlannedDestinationPath);
+
+            previewSb.AppendLine($"Write-Host ('--- [PREVIEW ONLY] Processing Batch: ' + '{escapedBatchName}' + ' ---') -ForegroundColor Cyan");
+            previewSb.AppendLine($"$src = '{escapedSrc}'");
+            previewSb.AppendLine($"$dst = '{escapedDst}'");
             previewSb.AppendLine($"$log = Join-Path $logDir 'preview-{cleanName}.log'");
             previewSb.AppendLine("if (Test-Path $src) {");
             previewSb.AppendLine("    # Robocopy /L = List only (no file copy occurs)");
             previewSb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /L /NP /R:1 /W:1 /LOG+:$log");
             previewSb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
-            previewSb.AppendLine($"        throw \"Robocopy preview failed with exit code $LASTEXITCODE for batch '{b.BatchName}'. Check log: $log\"");
+            previewSb.AppendLine($"        throw ('Robocopy preview failed with exit code ' + $LASTEXITCODE + ' for batch ''' + '{escapedBatchName}' + '''. Check log: ' + $log)");
             previewSb.AppendLine("    }");
             previewSb.AppendLine("} else {");
             previewSb.AppendLine("    Write-Warning \"Source path not found: $src\"");
@@ -211,15 +215,19 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         foreach (var b in plan.Batches)
         {
             var cleanName = SanitizeIdentifier(b.BatchName);
-            copySb.AppendLine($"Write-Host '>>> Starting Copy for Batch: {b.BatchName} >>>' -ForegroundColor Yellow");
-            copySb.AppendLine($"$src = '{b.SourcePath.Replace("'", "''")}'");
-            copySb.AppendLine($"$dst = '{b.PlannedDestinationPath.Replace("'", "''")}'");
+            var escapedBatchName = EscapePowerShellSingleQuotedLiteral(b.BatchName);
+            var escapedSrc = EscapePowerShellSingleQuotedLiteral(b.SourcePath);
+            var escapedDst = EscapePowerShellSingleQuotedLiteral(b.PlannedDestinationPath);
+
+            copySb.AppendLine($"Write-Host ('>>> Starting Copy for Batch: ' + '{escapedBatchName}' + ' >>>') -ForegroundColor Yellow");
+            copySb.AppendLine($"$src = '{escapedSrc}'");
+            copySb.AppendLine($"$dst = '{escapedDst}'");
             copySb.AppendLine($"$log = Join-Path $logDir 'copy-{cleanName}.log'");
             copySb.AppendLine("if (Test-Path $src) {");
             copySb.AppendLine("    # Copy with data, attributes, timestamps. Safe retries, skip junctions.");
             copySb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /NP /R:2 /W:3 /LOG+:$log");
             copySb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
-            copySb.AppendLine($"        throw \"Robocopy copy failed with exit code $LASTEXITCODE for batch '{b.BatchName}'. Check log: $log\"");
+            copySb.AppendLine($"        throw ('Robocopy copy failed with exit code ' + $LASTEXITCODE + ' for batch ''' + '{escapedBatchName}' + '''. Check log: ' + $log)");
             copySb.AppendLine("    }");
             copySb.AppendLine("} else {");
             copySb.AppendLine("    Write-Warning \"Source path not found: $src\"");
@@ -237,6 +245,139 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             PreviewScriptPath = previewScriptPath,
             CopyScriptPath = copyScriptPath
         };
+    }
+
+    public async Task<DirectoryEstimationResult> EstimateDirectoryAsync(
+        string directoryPath,
+        IProgress<string>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+        {
+            return new DirectoryEstimationResult { TotalBytes = 0, FileCount = 0, IsPartial = false };
+        }
+
+        return await Task.Run(() =>
+        {
+            long totalBytes = 0;
+            int fileCount = 0;
+            bool isPartial = false;
+            var stack = new Stack<string>();
+            stack.Push(directoryPath);
+
+            string normalizedRoot;
+            try
+            {
+                normalizedRoot = Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+            catch
+            {
+                normalizedRoot = directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+
+            while (stack.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var currentDir = stack.Pop();
+
+                try
+                {
+                    string normalizedCurrent;
+                    try
+                    {
+                        normalizedCurrent = Path.GetFullPath(currentDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    }
+                    catch
+                    {
+                        normalizedCurrent = currentDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    }
+
+                    if (!string.Equals(normalizedCurrent, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var dirInfo = new DirectoryInfo(currentDir);
+                        if ((dirInfo.Attributes & FileAttributes.ReparsePoint) != 0)
+                        {
+                            _logger.LogDebug("Skipping reparse point / junction in directory estimation: {Path}", currentDir);
+                            continue;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to check directory attributes for {Directory}", currentDir);
+                    isPartial = true;
+                    continue;
+                }
+
+                string[] files;
+                try
+                {
+                    files = Directory.GetFiles(currentDir);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to enumerate files in {Directory}", currentDir);
+                    isPartial = true;
+                    files = Array.Empty<string>();
+                }
+
+                foreach (var file in files)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        var fi = new FileInfo(file);
+                        if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
+                        {
+                            continue;
+                        }
+                        totalBytes += fi.Length;
+                        fileCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to inspect file size for {File}", file);
+                        isPartial = true;
+                    }
+                }
+
+                string[] subdirs;
+                try
+                {
+                    subdirs = Directory.GetDirectories(currentDir);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to enumerate subdirectories in {Directory}", currentDir);
+                    isPartial = true;
+                    continue;
+                }
+
+                foreach (var subdir in subdirs)
+                {
+                    stack.Push(subdir);
+                }
+
+                if (fileCount % 100 == 0 || stack.Count == 0)
+                {
+                    progress?.Report($"Estimating: {fileCount:N0} files scanned...");
+                }
+            }
+
+            return new DirectoryEstimationResult
+            {
+                TotalBytes = totalBytes,
+                FileCount = fileCount,
+                IsPartial = isPartial
+            };
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    public static string EscapePowerShellSingleQuotedLiteral(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return string.Empty;
+        var sanitized = value.Replace("\r", " ").Replace("\n", " ");
+        return sanitized.Replace("'", "''");
     }
 
     private static string SanitizeIdentifier(string name)

@@ -51,6 +51,10 @@ public sealed class OllamaClient : IOllamaClient
                     $"Remote AI endpoints are strictly prohibited for privacy safety. Host '{uri.Host}' is not a local loopback address (localhost / 127.0.0.1).");
             }
         }
+        else if (!uri.IsLoopback && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("SECURITY WARNING: Local loopback enforcement is disabled by user configuration. Sending requests to remote endpoint: {Endpoint}", endpoint);
+        }
     }
 
     public async Task<AiConnectionStatus> CheckConnectionAsync(string endpoint, CancellationToken cancellationToken = default)

@@ -114,8 +114,13 @@
                         <TextBlock Text="{Binding DestinationFreeSpaceText}" FontSize="12" Foreground="{StaticResource AccentHoverBrush}" FontWeight="SemiBold" />
                     </StackPanel>
 
-                    <Button Grid.Column="2" Style="{StaticResource PrimaryButtonStyle}" Content="➕ Add to Plan"
-                            Command="{Binding AddBatchCommand}" Height="32" Padding="18,0" VerticalAlignment="Bottom" />
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
+                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="➕ Add to Plan"
+                                Command="{Binding AddBatchCommand}" Height="32" Padding="18,0" />
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="✕ Cancel"
+                                Command="{Binding CancelEstimationCommand}" Height="32" Padding="14,0" Margin="8,0,0,0"
+                                Visibility="{Binding IsEstimating, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
                 </Grid>
             </Grid>
         </Border>

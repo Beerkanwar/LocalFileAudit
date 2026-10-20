@@ -174,6 +174,133 @@ public class StorageAnalysisEngineTests : IDisposable
         Assert.Equal(candidates1[0].Category, candidates3[0].Category);
     }
 
+    [Fact]
+    public async Task GetLargestDirectories_WithNestedOnlyAndSiblingTrees_CalculatesRecursiveRollUpAccurately()
+    {
+        var scanId = Guid.NewGuid();
+        await _repository.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.Completed,
+            SelectedDrives = @"D:\Root"
+        });
+
+        // Structure:
+        // D:\Root\ParentWithNoDirectFiles\ChildA\file1 (100 MB)
+        // D:\Root\ParentWithNoDirectFiles\ChildB\file2 (200 MB)
+        // D:\Root\SiblingFolder\file3 (50 MB)
+        var directories = new List<DirectoryRecord>
+        {
+            new() { ScanRunId = scanId, Path = @"D:\Root\ParentWithNoDirectFiles" },
+            new() { ScanRunId = scanId, Path = @"D:\Root\ParentWithNoDirectFiles\ChildA" },
+            new() { ScanRunId = scanId, Path = @"D:\Root\ParentWithNoDirectFiles\ChildB" },
+            new() { ScanRunId = scanId, Path = @"D:\Root\SiblingFolder" }
+        };
+        await _repository.InsertDirectoryBatchAsync(directories);
+
+        var files = new List<FileRecord>
+        {
+            new() { ScanRunId = scanId, FullPath = @"D:\Root\ParentWithNoDirectFiles\ChildA\file1.dat", ParentPath = @"D:\Root\ParentWithNoDirectFiles\ChildA", FileName = "file1.dat", Extension = ".dat", SizeBytes = 100_000_000 },
+            new() { ScanRunId = scanId, FullPath = @"D:\Root\ParentWithNoDirectFiles\ChildB\file2.dat", ParentPath = @"D:\Root\ParentWithNoDirectFiles\ChildB", FileName = "file2.dat", Extension = ".dat", SizeBytes = 200_000_000 },
+            new() { ScanRunId = scanId, FullPath = @"D:\Root\SiblingFolder\file3.dat", ParentPath = @"D:\Root\SiblingFolder", FileName = "file3.dat", Extension = ".dat", SizeBytes = 50_000_000 }
+        };
+        await _repository.InsertFileBatchAsync(files);
+
+        var dirs = await _engine.GetLargestDirectoriesAsync(scanId, top: 10);
+
+        // ParentWithNoDirectFiles must appear as the largest (100MB + 200MB = 300MB recursive)
+        // even though it contains 0 direct files!
+        var parentSummary = dirs.FirstOrDefault(d => d.DirectoryPath.Equals(@"D:\Root\ParentWithNoDirectFiles", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(parentSummary);
+        Assert.Equal(0, parentSummary.DirectFileCount);
+        Assert.Equal(0, parentSummary.DirectSizeBytes);
+        Assert.Equal(2, parentSummary.RecursiveFileCount);
+        Assert.Equal(300_000_000, parentSummary.RecursiveSizeBytes);
+        Assert.True(parentSummary.IsComplete);
+
+        // ChildB has 200MB direct & recursive
+        var childBSummary = dirs.FirstOrDefault(d => d.DirectoryPath.Equals(@"D:\Root\ParentWithNoDirectFiles\ChildB", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(childBSummary);
+        Assert.Equal(1, childBSummary.DirectFileCount);
+        Assert.Equal(200_000_000, childBSummary.DirectSizeBytes);
+        Assert.Equal(1, childBSummary.RecursiveFileCount);
+        Assert.Equal(200_000_000, childBSummary.RecursiveSizeBytes);
+
+        // SiblingFolder has 50MB
+        var siblingSummary = dirs.FirstOrDefault(d => d.DirectoryPath.Equals(@"D:\Root\SiblingFolder", StringComparison.OrdinalIgnoreCase));
+        Assert.NotNull(siblingSummary);
+        Assert.Equal(1, siblingSummary.DirectFileCount);
+        Assert.Equal(50_000_000, siblingSummary.DirectSizeBytes);
+        Assert.Equal(1, siblingSummary.RecursiveFileCount);
+        Assert.Equal(50_000_000, siblingSummary.RecursiveSizeBytes);
+    }
+
+    [Fact]
+    public async Task GetLargestDirectories_WhenScanInProgress_SetsIsCompleteFalse()
+    {
+        var scanId = Guid.NewGuid();
+        await _repository.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.InProgress,
+            SelectedDrives = @"D:\"
+        });
+
+        var files = new List<FileRecord>
+        {
+            new() { ScanRunId = scanId, FullPath = @"D:\Data\file1.dat", ParentPath = @"D:\Data", FileName = "file1.dat", Extension = ".dat", SizeBytes = 1000 }
+        };
+        await _repository.InsertFileBatchAsync(files);
+
+        var dirs = await _engine.GetLargestDirectoriesAsync(scanId, top: 1);
+        Assert.Single(dirs);
+        Assert.False(dirs[0].IsComplete);
+    }
+
+    [Fact]
+    public async Task AnalyzeScan_DuringInProgressScan_DoesNotPoisonCompletedCache()
+    {
+        var scanId = Guid.NewGuid();
+        await _repository.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.InProgress,
+            SelectedDrives = @"D:\"
+        });
+
+        // 1. Initial batch of 2 files
+        var batch1 = new List<FileRecord>
+        {
+            new() { ScanRunId = scanId, FullPath = @"D:\a.txt", ParentPath = @"D:\", FileName = "a.txt", Extension = ".txt", SizeBytes = 100 },
+            new() { ScanRunId = scanId, FullPath = @"D:\b.txt", ParentPath = @"D:\", FileName = "b.txt", Extension = ".txt", SizeBytes = 200 }
+        };
+        await _repository.InsertFileBatchAsync(batch1);
+
+        // 2. Analyze while in-progress
+        var partialSummary = await _engine.AnalyzeScanAsync(scanId);
+        Assert.False(partialSummary.IsScanComplete);
+        Assert.Equal(2, partialSummary.TotalFiles);
+        Assert.Equal(300, partialSummary.TotalLogicalSizeBytes);
+
+        // 3. Scan completes and commits additional files
+        var batch2 = new List<FileRecord>
+        {
+            new() { ScanRunId = scanId, FullPath = @"D:\c.txt", ParentPath = @"D:\", FileName = "c.txt", Extension = ".txt", SizeBytes = 500 }
+        };
+        await _repository.InsertFileBatchAsync(batch2);
+        await _repository.UpdateScanRunStatusAsync(scanId, ScanState.Completed, DateTime.UtcNow, 3, 1, 0);
+
+        // 4. Re-analyze: must NOT serve the partial 2-file cache
+        var completedSummary = await _engine.AnalyzeScanAsync(scanId);
+        Assert.True(completedSummary.IsScanComplete);
+        Assert.Equal(3, completedSummary.TotalFiles);
+        Assert.Equal(800, completedSummary.TotalLogicalSizeBytes);
+
+        // 5. Subsequent call serves the cached completed summary
+        var cachedSummary = await _engine.AnalyzeScanAsync(scanId);
+        Assert.Same(completedSummary, cachedSummary);
+    }
+
     public void Dispose()
     {
         try

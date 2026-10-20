@@ -23,6 +23,15 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore LocalFileAudit.slnx
 
+    - name: Vulnerability audit
+      shell: pwsh
+      run: |
+        $vuln = dotnet list package --vulnerable --include-transitive
+        $vuln | Out-String | Write-Host
+        if ($vuln -match 'has the following vulnerable packages') {
+          throw "Vulnerable NuGet packages detected in solution!"
+        }
+
     - name: Build solution
       run: dotnet build LocalFileAudit.slnx --configuration Release --no-restore
 

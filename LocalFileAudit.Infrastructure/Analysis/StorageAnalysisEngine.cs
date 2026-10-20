@@ -1,5 +1,6 @@
 using System.Data;
 using LocalFileAudit.Core.Analysis;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Data.Sqlite;
@@ -54,13 +55,13 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
     public async Task<StorageMetricsSummary> AnalyzeScanAsync(Guid scanRunId, CancellationToken cancellationToken = default)
     {
-        if (_summaryCache.TryGetValue(scanRunId, out var cachedSummary))
+        var run = await _repository.GetScanRunAsync(scanRunId, cancellationToken).ConfigureAwait(false)
+            ?? throw new ArgumentException($"Scan run {scanRunId} not found.", nameof(scanRunId));
+
+        if (run.Status == ScanState.Completed && _summaryCache.TryGetValue(scanRunId, out var cachedSummary) && cachedSummary.IsScanComplete)
         {
             return cachedSummary;
         }
-
-        var run = await _repository.GetScanRunAsync(scanRunId, cancellationToken).ConfigureAwait(false)
-            ?? throw new ArgumentException($"Scan run {scanRunId} not found.", nameof(scanRunId));
 
         var totalFiles = await _repository.GetFileCountForScanAsync(scanRunId, cancellationToken).ConfigureAwait(false);
         var totalBytes = await _repository.GetTotalLogicalSizeBytesForScanAsync(scanRunId, cancellationToken).ConfigureAwait(false);
@@ -128,7 +129,10 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             ReviewCandidates = candidates.ToList()
         };
 
-        _summaryCache[scanRunId] = summary;
+        if (run.Status == ScanState.Completed)
+        {
+            _summaryCache[scanRunId] = summary;
+        }
         return summary;
     }
 
@@ -196,39 +200,134 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
     public async Task<IReadOnlyList<DirectorySummary>> GetLargestDirectoriesAsync(Guid scanRunId, int top = 50, CancellationToken cancellationToken = default)
     {
-        var list = new List<DirectorySummary>();
         await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"
-            SELECT ParentPath, COUNT(1) AS DirectFiles, SUM(SizeBytes) AS DirectBytes
-            FROM Files
-            WHERE ScanRunId = @ScanRunId
-            GROUP BY ParentPath
-            ORDER BY DirectBytes DESC
-            LIMIT @Top;
-        ";
-        cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
-        cmd.Parameters.AddWithValue("@Top", top);
 
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        // 1. Determine if the scan run is complete
+        var isComplete = false;
+        await using (var statusCmd = conn.CreateCommand())
         {
-            var path = reader.GetString(reader.GetOrdinal("ParentPath"));
-            var files = reader.GetInt64(reader.GetOrdinal("DirectFiles"));
-            var bytes = reader.GetInt64(reader.GetOrdinal("DirectBytes"));
-
-            list.Add(new DirectorySummary
+            statusCmd.CommandText = "SELECT Status FROM ScanRuns WHERE Id = @ScanRunId LIMIT 1;";
+            statusCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+            var statusObj = await statusCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (statusObj is string statusStr && Enum.TryParse<ScanState>(statusStr, out var state))
             {
-                DirectoryPath = path,
-                DirectFileCount = files,
-                DirectSizeBytes = bytes,
-                RecursiveFileCount = files,
-                RecursiveSizeBytes = bytes,
-                IsComplete = true
-            });
+                isComplete = state == ScanState.Completed;
+            }
         }
 
-        return list;
+        // 2. Load all known directories and direct file aggregates
+        var dirMap = new Dictionary<string, DirAggregates>(StringComparer.OrdinalIgnoreCase);
+
+        // Pre-populate with all directories recorded during the scan (even if they contain 0 direct files)
+        await using (var dirCmd = conn.CreateCommand())
+        {
+            dirCmd.CommandText = "SELECT Path FROM Directories WHERE ScanRunId = @ScanRunId;";
+            dirCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+            await using var dirReader = await dirCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await dirReader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var p = NormalizeDirPath(dirReader.GetString(0));
+                if (!string.IsNullOrEmpty(p) && !dirMap.ContainsKey(p))
+                {
+                    dirMap[p] = new DirAggregates { DirectoryPath = p };
+                }
+            }
+        }
+
+        // Aggregate direct files and sizes per ParentPath
+        var directAggregates = new List<(string Path, long Files, long Bytes)>();
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT ParentPath, COUNT(1) AS DirectFiles, SUM(SizeBytes) AS DirectBytes
+                FROM Files
+                WHERE ScanRunId = @ScanRunId
+                GROUP BY ParentPath;
+            ";
+            cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                var path = NormalizeDirPath(reader.GetString(0));
+                var files = reader.GetInt64(1);
+                var bytes = reader.GetInt64(2);
+                directAggregates.Add((path, files, bytes));
+            }
+        }
+
+        // 3. Roll up direct statistics into recursive totals across ancestor hierarchy
+        foreach (var (path, files, bytes) in directAggregates)
+        {
+            if (!dirMap.TryGetValue(path, out var selfEntry))
+            {
+                selfEntry = new DirAggregates { DirectoryPath = path };
+                dirMap[path] = selfEntry;
+            }
+
+            selfEntry.DirectFileCount = files;
+            selfEntry.DirectSizeBytes = bytes;
+            selfEntry.RecursiveFileCount += files;
+            selfEntry.RecursiveSizeBytes += bytes;
+
+            // Propagate up to all parent directories
+            var current = path;
+            while (true)
+            {
+                var parent = Path.GetDirectoryName(current);
+                if (string.IsNullOrEmpty(parent) || parent.Equals(current, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                var normalizedParent = NormalizeDirPath(parent);
+                if (!dirMap.TryGetValue(normalizedParent, out var parentEntry))
+                {
+                    parentEntry = new DirAggregates { DirectoryPath = normalizedParent };
+                    dirMap[normalizedParent] = parentEntry;
+                }
+
+                parentEntry.RecursiveFileCount += files;
+                parentEntry.RecursiveSizeBytes += bytes;
+                current = normalizedParent;
+            }
+        }
+
+        // 4. Return top directories ordered by RecursiveSizeBytes descending
+        return dirMap.Values
+            .OrderByDescending(d => d.RecursiveSizeBytes)
+            .ThenByDescending(d => d.DirectSizeBytes)
+            .Take(top)
+            .Select(d => new DirectorySummary
+            {
+                DirectoryPath = d.DirectoryPath,
+                DirectFileCount = d.DirectFileCount,
+                DirectSizeBytes = d.DirectSizeBytes,
+                RecursiveFileCount = d.RecursiveFileCount,
+                RecursiveSizeBytes = d.RecursiveSizeBytes,
+                IsComplete = isComplete
+            })
+            .ToList();
+    }
+
+    private static string NormalizeDirPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return string.Empty;
+        var trimmed = path.Trim();
+        if (trimmed.Length == 3 && trimmed[1] == ':' && (trimmed[2] == '\\' || trimmed[2] == '/'))
+        {
+            return trimmed.Replace('/', '\\');
+        }
+        return trimmed.TrimEnd('\\', '/');
+    }
+
+    private sealed class DirAggregates
+    {
+        public string DirectoryPath { get; set; } = string.Empty;
+        public long DirectFileCount { get; set; }
+        public long DirectSizeBytes { get; set; }
+        public long RecursiveFileCount { get; set; }
+        public long RecursiveSizeBytes { get; set; }
     }
 
     public async Task<IReadOnlyList<CandidateClassification>> ClassifyCandidatesAsync(Guid scanRunId, CancellationToken cancellationToken = default)
@@ -302,11 +401,11 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             FileName = reader.GetString(reader.GetOrdinal("FileName")),
             Extension = reader.GetString(reader.GetOrdinal("Extension")),
             SizeBytes = reader.GetInt64(reader.GetOrdinal("SizeBytes")),
-            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
-            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
-            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : DateTime.Parse(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
+            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
+            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
+            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
             Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
-            ObservedAtUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
+            ObservedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
             MetadataStatus = Enum.Parse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true),
             HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
             HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))

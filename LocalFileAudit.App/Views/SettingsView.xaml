@@ -149,6 +149,9 @@
 
                     <CheckBox IsChecked="{Binding RequireLocalEndpoint, Mode=TwoWay}"
                               Content="Enforce local loopback address only (rejects remote/external URLs)" Margin="0,4" />
+                    <TextBlock Text="⚠️ Warning: Disabling this advanced setting permits connecting to a remote AI endpoint over the network."
+                               FontSize="11" Foreground="#FFAA00" FontStyle="Italic" Margin="24,0,0,8"
+                               TextWrapping="Wrap" />
 
                     <Grid Margin="0,8">
                         <Grid.ColumnDefinitions>

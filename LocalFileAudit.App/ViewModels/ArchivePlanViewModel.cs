@@ -46,6 +46,14 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
     [ObservableProperty]
     private bool _isLoading;
 
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddBatchCommand))]
+    private bool _isEstimating;
+
+    private bool CanAddBatch => !IsEstimating;
+
+    private CancellationTokenSource? _estimationCts;
+
     public ObservableCollection<ArchiveBatch> Batches { get; } = new();
 
     public ArchivePlanViewModel(
@@ -118,12 +126,19 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanAddBatch))]
     public async Task AddBatchAsync()
     {
-        if (string.IsNullOrWhiteSpace(NewBatchName))
+        var trimmedName = NewBatchName?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmedName))
         {
             MessageBox.Show("Please specify a descriptive name for this archive batch.", "Archive Planner", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (trimmedName.IndexOfAny(new[] { '\r', '\n' }) >= 0 || trimmedName.Any(char.IsControl))
+        {
+            MessageBox.Show("Batch name cannot contain newlines or control characters.", "Archive Planner", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -139,20 +154,48 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
             return;
         }
 
-        // Estimate size and files in source
-        long estimatedBytes = 0;
-        int fileCount = 0;
+        // Asynchronously estimate size and file count off UI thread, skipping reparse points
+        IsEstimating = true;
+        IsLoading = true;
+        _estimationCts = new CancellationTokenSource();
+        DirectoryEstimationResult estimation;
+
         try
         {
-            foreach (var f in Directory.EnumerateFiles(NewSourcePath, "*", SearchOption.AllDirectories))
-            {
-                fileCount++;
-                try { estimatedBytes += new FileInfo(f).Length; } catch { }
-            }
+            StatusMessage = "Estimating batch size (skipping junctions)...";
+            var progress = new Progress<string>(msg => StatusMessage = msg);
+            estimation = await _plannerService.EstimateDirectoryAsync(NewSourcePath, progress, _estimationCts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            StatusMessage = "Batch estimation was cancelled.";
+            return;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not completely evaluate source directory size for {Path}", NewSourcePath);
+            estimation = new DirectoryEstimationResult { TotalBytes = 0, FileCount = 0, IsPartial = true };
+        }
+        finally
+        {
+            IsEstimating = false;
+            IsLoading = false;
+            _estimationCts?.Dispose();
+            _estimationCts = null;
+        }
+
+        long estimatedBytes = estimation.TotalBytes;
+        int fileCount = estimation.FileCount;
+
+        if (estimation.IsPartial)
+        {
+            MessageBox.Show(
+                $"Notice: Some files or subfolders could not be accessed during estimation (e.g. permission restrictions).\n\n" +
+                $"Estimated size is partial ({fileCount:N0} files, {FormatBytes(estimatedBytes)}).\n" +
+                $"The free space check will proceed with this partial total.",
+                "Partial Batch Size Estimate",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
         }
 
         // Space warning check
@@ -172,7 +215,7 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
 
         var batch = new ArchiveBatch
         {
-            BatchName = NewBatchName.Trim(),
+            BatchName = trimmedName,
             SourcePath = NewSourcePath.Trim(),
             PlannedDestinationPath = NewDestinationPath.Trim(),
             Reason = string.IsNullOrWhiteSpace(NewReason) ? "Cold storage offload" : NewReason.Trim(),
@@ -191,7 +234,19 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         NewDestinationPath = string.Empty;
         NewReason = string.Empty;
         DestinationFreeSpaceText = "Batch added successfully.";
-        StatusMessage = $"Added batch '{batch.BatchName}' ({batch.EstimatedFileCount:N0} files, {FormatBytes(batch.EstimatedSizeBytes)})";
+        StatusMessage = estimation.IsPartial
+            ? $"Added batch '{batch.BatchName}' (PARTIAL: {batch.EstimatedFileCount:N0} files, {FormatBytes(batch.EstimatedSizeBytes)})"
+            : $"Added batch '{batch.BatchName}' ({batch.EstimatedFileCount:N0} files, {FormatBytes(batch.EstimatedSizeBytes)})";
+    }
+
+    [RelayCommand]
+    public void CancelEstimation()
+    {
+        if (IsEstimating && _estimationCts != null && !_estimationCts.IsCancellationRequested)
+        {
+            _estimationCts.Cancel();
+            StatusMessage = "Cancelling estimation...";
+        }
     }
 
     [RelayCommand]

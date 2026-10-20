@@ -30,6 +30,7 @@ public sealed partial class ScansViewModel : ViewModelBase
     private readonly IConfigurationService _configurationService;
     private readonly INotificationService _notificationService;
     private readonly ILogger<ScansViewModel> _logger;
+    private readonly IStorageAnalysisEngine? _analysisEngine;
 
     private CancellationTokenSource? _scanCts;
 
@@ -115,6 +116,7 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             await _repository.DiscardScanRunAsync(scanRunId);
+            _analysisEngine?.InvalidateCache(scanRunId);
             ScanStatusText = $"Scan history record {scanRunId} removed from database. Source files untouched.";
             await RefreshScansAsync();
         }
@@ -130,13 +132,15 @@ public sealed partial class ScansViewModel : ViewModelBase
         IScanRepository repository,
         IConfigurationService configurationService,
         INotificationService notificationService,
-        ILogger<ScansViewModel> logger)
+        ILogger<ScansViewModel> logger,
+        IStorageAnalysisEngine? analysisEngine = null)
     {
         _scanEngine = scanEngine ?? throw new ArgumentNullException(nameof(scanEngine));
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
         _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _analysisEngine = analysisEngine;
 
         Title = "Scans";
 
@@ -227,6 +231,7 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             var run = await _scanEngine.StartScanAsync(target, _scanCts.Token, progress);
+            _analysisEngine?.InvalidateCache(run.Id);
             if (run.Status == ScanState.Completed)
             {
                 var errorSuffix = run.ErrorCount > 0
@@ -318,6 +323,7 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             var run = await _scanEngine.ResumeScanAsync(runId, _scanCts.Token, progress);
+            _analysisEngine?.InvalidateCache(run.Id);
             var resumeErrorSuffix = run.ErrorCount > 0
                 ? $" ({run.ErrorCount:N0} inaccessible paths encountered — detailed in ScanErrors.csv)"
                 : string.Empty;
@@ -348,6 +354,7 @@ public sealed partial class ScansViewModel : ViewModelBase
         {
             var runId = IncompleteScan.Id;
             await _repository.DiscardScanRunAsync(runId);
+            _analysisEngine?.InvalidateCache(runId);
             IncompleteScan = null;
             ScanStatusText = "Incomplete scan records discarded from database. Source files untouched.";
             await RefreshScansAsync();

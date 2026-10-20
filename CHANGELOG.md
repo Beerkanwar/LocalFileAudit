@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.5] - 2026-10-20
+
+### Fixed
+- **SQLite Dependency Security Fix (CVE-2025-6965):** Upgraded `Microsoft.Data.Sqlite` to 9.0.21 in Infrastructure and CrashWorker projects, resolving transitive dependency `SQLitePCLRaw.bundle_e_sqlite3` 2.1.13 and eliminating High-severity CVE-2025-6965. Added automated `dotnet list package --vulnerable --include-transitive` audit gates to CI build and release workflows.
+- **Recursive Directory Roll-Up for Storage Analysis & Treemap:** Implemented recursive hierarchical roll-up in `StorageAnalysisEngine.GetLargestDirectoriesAsync` so directory size and file counts recursively accumulate all descendant files, surfacing directories containing nested subfolders and providing accurate hotspot and treemap metrics. Scan state is now reflected dynamically for `IsComplete`.
+- **Timezone-Agnostic UTC Timestamp Parsing:** Introduced `UtcDateTimeHelper` parsing ISO-8601 UTC timestamps using invariant culture with `DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal`, ensuring database-stored UTC timestamps consistently produce `DateTimeKind.Utc` and accurate file ages regardless of local host timezone.
+- **Analysis Cache In-Progress Scan Poisoning Guard:** Constrained analysis caching strictly to completed scans (`ScanState.Completed`), preventing in-progress scans from poisoning the cache, and wired automatic cache invalidation into scan completion, resume, discard, and history deletion routines.
+- **Local AI Endpoint Network Policy & Audit:** Added prominent UI security warning callouts and audit logging when the loopback-only AI enforcement policy is disabled, and updated `SECURITY.md` to document the network boundary and the intentional advanced bypass behavior.
+- **PowerShell Script Injection Defense in Archive Planner:** Secured generated `preview-archive.ps1` and `copy-archive.ps1` scripts by strictly escaping PowerShell single-quoted literals and eliminating `$()` command interpolation in double-quoted strings for batch names, source paths, and destination paths. Added validation in `ArchivePlanViewModel` to reject control characters and newlines in batch names.
+- **Asynchronous Archive Batch Estimation & Junction Skipping:** Offloaded directory size estimation in `ArchivePlanViewModel` to a background worker with cancellation support, added progress reporting, skipped `ReparsePoint` entries (directory junctions/symlinks) to prevent infinite loops, and added explicit warnings when inaccessible paths produce partial estimates.
+
+---
+
 ## [1.3.4] - 2026-10-20
 
 ### Fixed

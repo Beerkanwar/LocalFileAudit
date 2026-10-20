@@ -30,6 +30,15 @@ jobs:
       with:
         dotnet-version: '9.0.x'
 
+    - name: Vulnerability audit
+      shell: pwsh
+      run: |
+        $vuln = dotnet list package --vulnerable --include-transitive
+        $vuln | Out-String | Write-Host
+        if ($vuln -match 'has the following vulnerable packages') {
+          throw "Vulnerable NuGet packages detected in solution!"
+        }
+
     - name: Run automated test suite
       run: dotnet test LocalFileAudit.slnx --configuration Release --verbosity normal
 

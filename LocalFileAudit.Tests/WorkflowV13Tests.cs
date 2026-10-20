@@ -487,5 +487,89 @@ public sealed class WorkflowV13Tests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task ArchivePlanner_EscapesSpecialCharacters_InBatchNamesAndPaths()
+    {
+        var planner = new ArchivePlannerService(_env, NullLogger<ArchivePlannerService>.Instance);
+
+        var plan = new ArchivePlan
+        {
+            PlanName = "Special Characters Plan"
+        };
+        var batch = new ArchiveBatch
+        {
+            BatchName = "User's $(Get-Process) \"Quoted\" \r\nBatch",
+            SourcePath = @"C:\Test's \Src",
+            PlannedDestinationPath = @"D:\Backup's \Dst",
+            Reason = "Testing escape safety"
+        };
+        plan.Batches.Add(batch);
+
+        var outDir = Path.Combine(_testRoot, "EscapedScripts");
+        var result = await planner.GenerateArchiveScriptsAsync(plan, outDir);
+
+        var preview = await File.ReadAllTextAsync(result.PreviewScriptPath);
+        var copy = await File.ReadAllTextAsync(result.CopyScriptPath);
+
+        // Batch name must be escaped: newlines stripped to spaces, single quotes doubled
+        var expectedEscaped = "User''s $(Get-Process) \"Quoted\"   Batch";
+        Assert.Contains(expectedEscaped, preview);
+        Assert.Contains(expectedEscaped, copy);
+
+        // Verification that $() is not inside a double-quoted string
+        Assert.DoesNotContain($"\"{batch.BatchName}\"", preview);
+        Assert.DoesNotContain($"\"{batch.BatchName}\"", copy);
+
+        // Path single quotes must also be escaped
+        Assert.Contains(@"C:\Test''s \Src", preview);
+        Assert.Contains(@"D:\Backup''s \Dst", copy);
+
+        // Verification of throw statement structure using single-quote concatenation
+        Assert.Contains("throw ('Robocopy preview failed with exit code ' + $LASTEXITCODE + ' for batch ''' + 'User''s $(Get-Process) \"Quoted\"   Batch' + '''. Check log: ' + $log)", preview);
+        Assert.Contains("throw ('Robocopy copy failed with exit code ' + $LASTEXITCODE + ' for batch ''' + 'User''s $(Get-Process) \"Quoted\"   Batch' + '''. Check log: ' + $log)", copy);
+    }
+
+    [Fact]
+    public async Task ArchivePlanner_EstimateDirectoryAsync_CalculatesSizeAndFileCountCorrectly()
+    {
+        var planner = new ArchivePlannerService(_env, NullLogger<ArchivePlannerService>.Instance);
+
+        var targetDir = Path.Combine(_testRoot, "EstimateTarget");
+        var subDir = Path.Combine(targetDir, "SubDir");
+        Directory.CreateDirectory(subDir);
+
+        var file1 = Path.Combine(targetDir, "file1.dat");
+        var file2 = Path.Combine(subDir, "file2.dat");
+        await File.WriteAllBytesAsync(file1, new byte[1024]);
+        await File.WriteAllBytesAsync(file2, new byte[2048]);
+
+        var result = await planner.EstimateDirectoryAsync(targetDir);
+
+        Assert.False(result.IsPartial);
+        Assert.Equal(2, result.FileCount);
+        Assert.Equal(3072, result.TotalBytes);
+    }
+
+    [Fact]
+    public async Task ArchivePlanner_EstimateDirectoryAsync_WhenCancelled_ThrowsOperationCanceledException()
+    {
+        var planner = new ArchivePlannerService(_env, NullLogger<ArchivePlannerService>.Instance);
+
+        var targetDir = Path.Combine(_testRoot, "EstimateCancelTarget");
+        Directory.CreateDirectory(targetDir);
+        for (int i = 0; i < 50; i++)
+        {
+            await File.WriteAllBytesAsync(Path.Combine(targetDir, $"test_{i}.bin"), new byte[100]);
+        }
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Pre-cancelled
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await planner.EstimateDirectoryAsync(targetDir, cancellationToken: cts.Token);
+        });
+    }
+
     #endregion
 }

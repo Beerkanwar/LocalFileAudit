@@ -53,9 +53,33 @@ public class AiIntegrationTests : IDisposable
         var httpClient = new HttpClient(mockHandler);
         var client = new OllamaClient(httpClient, _configService, NullLogger<OllamaClient>.Instance);
 
-        // Remote host must be rejected by safety policy
+        // Remote host must be rejected by safety policy when RequireLocalEndpoint is true
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             client.CheckConnectionAsync("http://remote-server.ai:11434"));
+    }
+
+    [Fact]
+    public async Task LocalEndpointPolicy_WhenRequireLocalDisabled_AllowsRemoteEndpoint()
+    {
+        var mockHandler = new MockHttpMessageHandler
+        {
+            Handler = _ => new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"models\":[]}")
+            }
+        };
+        var httpClient = new HttpClient(mockHandler);
+
+        var config = _configService.Current;
+        config.AI.RequireLocalEndpoint = false;
+        await _configService.SaveAsync(config);
+
+        var client = new OllamaClient(httpClient, _configService, NullLogger<OllamaClient>.Instance);
+
+        // When policy is explicitly disabled, remote endpoint connects without throwing InvalidOperationException
+        var status = await client.CheckConnectionAsync("http://remote-server.ai:11434");
+        Assert.NotNull(status);
+        Assert.True(status.IsAvailable);
     }
 
     [Fact]

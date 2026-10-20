@@ -14,7 +14,7 @@ LocalFileAudit operates under a defense-in-depth security model:
 ├────────────────────────────────────────────────────────┤
 │ • Execution Level: asInvoker (Standard User)           │
 │ • Filesystem Operations: Read-Only (FileShare.Read)    │
-│ • Network Boundaries: Loopback Only (127.0.0.1)        │
+│ • Network Boundaries: Loopback Only (127.0.0.1 by default) │
 │ • AI Prompt Boundaries: Data Isolation & Reconciliation│
 └────────────────────────────────────────────────────────┘
 ```
@@ -36,7 +36,7 @@ LocalFileAudit operates under a defense-in-depth security model:
       }
   }
   ```
-  Attempting to configure a remote hostname or external IP without intentionally changing configuration triggers an immediate `InvalidOperationException`. Users can explicitly configure a remote server only if desired, but the default is safe and loopback-only.
+  Attempting to configure a remote hostname or external IP without intentionally changing configuration triggers an immediate `InvalidOperationException`. Users operating a dedicated, self-hosted Ollama server on an isolated private LAN/VPN may intentionally disable `RequireLocalEndpoint` in Settings; this action displays a security warning in the UI and records an explicit audit warning in the local diagnostic logs. Remote public endpoints are never enabled by default.
 
 ### 1.3 Least Privilege Model
 - **No Administrator Elevation:** LocalFileAudit does not request elevation. The application manifest (`app.manifest`) declares:

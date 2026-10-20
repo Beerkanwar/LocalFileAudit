@@ -281,13 +281,47 @@ public sealed class DataAccuracyV12Tests : IDisposable
     }
 
     [Fact]
-    public void StorageAccuracy_FileAllocationHelper_ReturnsValidSpace()
+    public async Task UtcTimestamps_PreserveExactInstantAndUtcKind_RegardlessOfLocalTimeZone()
     {
-        var space = FileAllocationHelper.GetVolumeSpace("C:\\");
-        if (space.HasValue)
+        var runId = Guid.NewGuid();
+        var originalUtc = new DateTime(2026, 10, 20, 10, 30, 45, DateTimeKind.Utc);
+        var run = new ScanRun
         {
-            Assert.True(space.Value.TotalBytes > 0);
-            Assert.True(space.Value.FreeBytes > 0);
-        }
+            Id = runId,
+            StartTimeUtc = originalUtc,
+            Status = ScanState.Completed,
+            SelectedDrives = "D:\\"
+        };
+        await _repository.CreateScanRunAsync(run);
+
+        var file = new FileRecord
+        {
+            ScanRunId = runId,
+            FullPath = @"D:\utc-test.dat",
+            ParentPath = @"D:\",
+            FileName = "utc-test.dat",
+            Extension = ".dat",
+            SizeBytes = 1024,
+            CreationTimeUtc = originalUtc,
+            LastWriteTimeUtc = originalUtc,
+            ObservedAtUtc = originalUtc
+        };
+        await _repository.InsertFileBatchAsync(new[] { file });
+
+        // Retrieve scan run
+        var retrievedRun = await _repository.GetScanRunAsync(runId);
+        Assert.NotNull(retrievedRun);
+        Assert.Equal(DateTimeKind.Utc, retrievedRun.StartTimeUtc.Kind);
+        Assert.Equal(originalUtc, retrievedRun.StartTimeUtc);
+
+        // Retrieve file record
+        var paged = await _repository.QueryFilesAsync(new FileInventoryQuery { ScanRunId = runId });
+        Assert.Single(paged.Items);
+        var retrievedFile = paged.Items[0];
+        Assert.NotNull(retrievedFile.LastWriteTimeUtc);
+        Assert.Equal(DateTimeKind.Utc, retrievedFile.LastWriteTimeUtc.Value.Kind);
+        Assert.Equal(originalUtc, retrievedFile.LastWriteTimeUtc.Value);
+        Assert.Equal(DateTimeKind.Utc, retrievedFile.ObservedAtUtc.Kind);
+        Assert.Equal(originalUtc, retrievedFile.ObservedAtUtc);
     }
 }
