@@ -913,6 +913,76 @@ public sealed class SqliteScanRepository : IScanRepository
         }
     }
 
+    public async Task InsertChatMessageAsync(ChatMessageRecord message, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO ChatMessages (ScanRunId, Role, Content, TimestampUtc, ContextCandidateIds)
+                VALUES (@ScanRunId, @Role, @Content, @TimestampUtc, @ContextCandidateIds);
+                SELECT last_insert_rowid();
+            ";
+            cmd.Parameters.AddWithValue("@ScanRunId", message.ScanRunId.ToString());
+            cmd.Parameters.AddWithValue("@Role", message.Role);
+            cmd.Parameters.AddWithValue("@Content", message.Content);
+            cmd.Parameters.AddWithValue("@TimestampUtc", message.TimestampUtc.ToString("o"));
+            cmd.Parameters.AddWithValue("@ContextCandidateIds", (object?)message.ContextCandidateIds ?? DBNull.Value);
+
+            var id = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            message.Id = Convert.ToInt64(id);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<ChatMessageRecord>> GetChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        var messages = new List<ChatMessageRecord>();
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT * FROM ChatMessages WHERE ScanRunId = @ScanRunId ORDER BY TimestampUtc ASC, Id ASC;";
+        cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            messages.Add(new ChatMessageRecord
+            {
+                Id = reader.GetInt64(reader.GetOrdinal("Id")),
+                ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
+                Role = reader.GetString(reader.GetOrdinal("Role")),
+                Content = reader.GetString(reader.GetOrdinal("Content")),
+                TimestampUtc = DateTime.Parse(reader.GetString(reader.GetOrdinal("TimestampUtc"))),
+                ContextCandidateIds = reader.IsDBNull(reader.GetOrdinal("ContextCandidateIds")) ? null : reader.GetString(reader.GetOrdinal("ContextCandidateIds"))
+            });
+        }
+
+        return messages;
+    }
+
+    public async Task DeleteChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM ChatMessages WHERE ScanRunId = @ScanRunId;";
+            cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     private static FileRecord MapFileRecord(SqliteDataReader reader)
     {
         return new FileRecord

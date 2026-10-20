@@ -30,36 +30,34 @@ Built with C# and .NET 9 (WPF), LocalFileAudit provides deep visibility into you
   - Safe reparse-point / symbolic link skipping by default to prevent infinite directory recursion loops.
   - Non-blocking cooperative pause, resume, and cancellation.
   - Low-impact scanning mode with throttling intervals for background operation.
-- **📊 Interactive Desktop Dashboard:**
-  - Storage consumption KPIs (Total Logical Size, Files Discovered, Elapsed Time, Directories Scanned).
+- **📊 Interactive Desktop Dashboard & Storage Treemap:**
+  - Storage consumption KPIs (Volume Capacity, Total Logical Size, Discovered Files, Elapsed Time, Cloud Placeholders).
+  - **Squarified Visual Treemap:** Visual hierarchy of recursive directory storage consumption with extension palettes, hover inspection, and click-to-explore actions.
   - Extension distribution visual bars and size share percentages.
   - Top storage hotspot directories and largest files preview.
-  - Direct quick navigation between views.
-- **🔎 Parameterized Searchable Inventory:**
+- **🔎 Parameterized Searchable Inventory & Streaming Full Export:**
   - Filter across millions of files by path, extension, file size, modification date, and filename.
   - Parameterized SQLite queries with indexed sorting and virtualized pagination.
-  - Built-in file inspector with explainable classification rule badges.
-- **📑 Two-Stage Duplicate Detection:**
+  - Built-in file inspector displaying logical size, on-disk allocated size (`GetCompressedFileSize`), attributes, and classification badges.
+  - **Full Inventory Streaming CSV Export:** Stream-writes entire file inventories to CSV with real-time progress, cancellation, and optional extension/size filters.
+- **⚖ Run Comparison (Change Tracking):**
+  - Select and compare any two historical scans to track `New`, `Deleted`, `Modified`, and `Unchanged` files.
+  - Summary metrics and extension-level size delta breakdowns with exportable comparison CSVs.
+- **📦 Archive Planning & Read-Only Verification Pipeline:**
+  - **Archive Batch Planner:** Organize files into USB/external drive batches, monitor destination free space, and generate reviewable PowerShell scripts (`preview-archive.ps1` with robocopy `/L` and `copy-archive.ps1`) alongside an `ArchiveManifest.csv`.
+  - **Archive Verifier:** Strictly read-only verification comparing source and destination trees by relative paths, file sizes, and on-demand SHA-256 hashes with nested-path guards and CSV reporting.
+- **📑 Two-Stage Duplicate Detection with Hash Reuse:**
   - **Stage 1:** Lightning-fast grouping by exact byte length.
   - **Stage 2:** Cryptographic verification using asynchronous SHA-256 hashing.
+  - **Historical Hash Reuse:** Reuses existing hashes from prior scans for unchanged files, accelerating audits from hours to minutes.
   - Pre- and post-hash timestamp verification to detect concurrent file modifications.
-  - Wasted storage calculations and safe copy-path / reveal-in-explorer actions.
 - **📄 Atomic Report Generation (Offline & Deterministic):**
-  - Generates 8 audit artifacts atomically via staging directories:
-    - `Summary.md` — Human-readable Markdown summary.
-    - `Summary.html` — Self-contained, CSS-styled HTML report with strict context-aware escaping.
-    - `ExtensionSummary.csv` — Extension metrics breakdown.
-    - `DirectorySummary.csv` — Top directory consumers.
-    - `ReviewCandidates.csv` — Explainable cleanup/archive candidates.
-    - `ScanErrors.csv` — Logged inaccessible paths and I/O errors.
-    - `Inventory.csv` — Top largest files summary.
-    - `Manifest.json` — Machine-readable audit manifest with SHA-256 verification metadata.
-- **🤖 Optional Local AI Storage Insights (Ollama):**
-  - Offline Ollama integration over local loopback (`http://127.0.0.1:11434`).
-  - Strict loopback IP enforcement; remote endpoints are rejected.
-  - Prompt-injection defense: file paths are framed as untrusted data.
-  - Candidate reconciliation: AI responses with hallucinated candidate IDs are discarded.
-  - Exportable `AI-Review.md` narrative report.
+  - Generates audit artifacts atomically via staging directories (`Summary.md`, `Summary.html`, `ExtensionSummary.csv`, `DirectorySummary.csv`, `ReviewCandidates.csv`, `ScanErrors.csv`, `Inventory.csv`, `Manifest.json`).
+- **🤖 Local AI Decision Support & Follow-up Chat (Ollama):**
+  - Offline Ollama integration over local loopback (`http://127.0.0.1:11434`) with strict loopback IP enforcement.
+  - **Interactive Follow-up Chat:** Scoped conversational analysis per scan run grounded in candidate metadata, with persisted chat history and one-click "Ask AI" context links from inventory rows.
+  - Exportable `AI-Review.md` narrative report and one-click `AI-Review-Table.csv` / `.md`.
+  - System prompts strictly advisory-only with zero mutation authorities.
 
 ---
 

@@ -262,6 +262,7 @@
                         <TextBlock Text="{Binding SelectedFile.FileName, FallbackValue='No file selected'}"
                                    FontSize="15" FontWeight="Bold" TextTrimming="CharacterEllipsis" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
+                            <Button Style="{StaticResource SecondaryButtonStyle}" Content="🤖 Ask AI" Command="{Binding AskAiAboutSelectedFileCommand}" Height="26" Padding="8,0" Margin="0,0,6,0" FontSize="11" />
                             <Button Style="{StaticResource SecondaryButtonStyle}" Content="📋 Copy Path" Command="{Binding CopyPathCommand}" Height="26" Padding="8,0" Margin="0,0,6,0" FontSize="11" />
                             <Button Style="{StaticResource SecondaryButtonStyle}" Content="📂 Open Folder" Command="{Binding RevealInExplorerCommand}" Height="26" Padding="8,0" FontSize="11" />
                         </StackPanel>

@@ -27,6 +27,8 @@ public sealed partial class MainViewModel : ObservableObject
     public DuplicateAnalysisViewModel DuplicateAnalysis { get; }
     public AiReportsViewModel AiReports { get; }
     public CompareRunsViewModel CompareRuns { get; }
+    public ArchivePlanViewModel ArchivePlan { get; }
+    public ArchiveVerificationViewModel ArchiveVerification { get; }
     public SettingsViewModel Settings { get; }
 
     public MainViewModel(
@@ -37,6 +39,8 @@ public sealed partial class MainViewModel : ObservableObject
         DuplicateAnalysisViewModel duplicateAnalysis,
         AiReportsViewModel aiReports,
         CompareRunsViewModel compareRuns,
+        ArchivePlanViewModel archivePlan,
+        ArchiveVerificationViewModel archiveVerification,
         SettingsViewModel settings,
         ILogger<MainViewModel> logger)
     {
@@ -47,6 +51,8 @@ public sealed partial class MainViewModel : ObservableObject
         DuplicateAnalysis = duplicateAnalysis ?? throw new ArgumentNullException(nameof(duplicateAnalysis));
         AiReports = aiReports ?? throw new ArgumentNullException(nameof(aiReports));
         CompareRuns = compareRuns ?? throw new ArgumentNullException(nameof(compareRuns));
+        ArchivePlan = archivePlan ?? throw new ArgumentNullException(nameof(archivePlan));
+        ArchiveVerification = archiveVerification ?? throw new ArgumentNullException(nameof(archiveVerification));
         Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
@@ -69,6 +75,16 @@ public sealed partial class MainViewModel : ObservableObject
             Navigate("Inventory");
             await Inventory.SelectAndInspectFileByIdAsync(candidateId, scanId);
         };
+        Inventory.OnNavigateToAiChat = (query, scanId) =>
+        {
+            Navigate("AiReports");
+            if (scanId != null)
+            {
+                var targetScan = AiReports.AvailableScans.FirstOrDefault(s => s.Id == scanId.Value);
+                if (targetScan != null) AiReports.SelectedScan = targetScan;
+            }
+            AiReports.ChatInputText = query;
+        };
     }
 
     [RelayCommand]
@@ -85,6 +101,8 @@ public sealed partial class MainViewModel : ObservableObject
             "DuplicateAnalysis" => DuplicateAnalysis,
             "AiReports" => AiReports,
             "CompareRuns" => CompareRuns,
+            "ArchivePlan" => ArchivePlan,
+            "ArchiveVerification" => ArchiveVerification,
             "Settings" => Settings,
             _ => Dashboard
         };
@@ -106,6 +124,9 @@ public sealed partial class MainViewModel : ObservableObject
                 break;
             case "CompareRuns":
                 _ = CompareRuns.LoadAvailableRunsAsync();
+                break;
+            case "ArchivePlan":
+                _ = ArchivePlan.LoadPlanAsync();
                 break;
         }
     }

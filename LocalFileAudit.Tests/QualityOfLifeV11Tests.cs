@@ -247,6 +247,9 @@ public sealed class QualityOfLifeV11Tests : IDisposable
 
         public Task<string> GenerateJsonAsync(string endpoint, string model, string systemPrompt, string prompt, CancellationToken cancellationToken = default) =>
             Task.FromResult("{}");
+
+        public Task<string> SendChatAsync(string endpoint, string model, string systemPrompt, IEnumerable<ChatMessageRecord> history, CancellationToken cancellationToken = default) =>
+            Task.FromResult("Mock assistant response");
     }
 
     private sealed class InMemoryConfigService : LocalFileAudit.Core.Interfaces.IConfigurationService

@@ -4,6 +4,7 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:vm="clr-namespace:LocalFileAudit.App.ViewModels"
+             xmlns:controls="clr-namespace:LocalFileAudit.App.Controls"
              d:DataContext="{d:DesignInstance Type=vm:DashboardViewModel}"
              mc:Ignorable="d" 
              d:DesignHeight="850" d:DesignWidth="1050">
@@ -127,6 +128,23 @@
                     </Grid>
                 </Border>
             </Grid>
+
+            <!-- Visual Storage Treemap Section (F2) -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,20">
+                <StackPanel>
+                    <Grid Margin="0,0,0,12">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Storage Treemap (Visual Folder Hotspots)" FontSize="15" FontWeight="SemiBold" />
+                            <TextBlock Text="— Click rectangle to reveal in Explorer, hover for size details" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="10,2,0,0" />
+                        </StackPanel>
+                        <Button HorizontalAlignment="Right" Style="{StaticResource SecondaryButtonStyle}" Content="Deep Analysis →"
+                                Command="{Binding NavigateToCommand}" CommandParameter="StorageAnalysis" Height="24" Padding="8,0" FontSize="11" />
+                    </Grid>
+                    <Border Background="#16181F" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" Height="260" Padding="2">
+                        <controls:TreemapControl Directories="{Binding TreemapDirectories}" TotalSizeBytes="{Binding TotalLogicalSizeBytes}" />
+                    </Border>
+                </StackPanel>
+            </Border>
 
             <!-- Two-Column Section: File-Type Distribution & Largest Directories -->
             <Grid Margin="0,0,0,20">

@@ -193,6 +193,75 @@ public sealed class OllamaClient : IOllamaClient
         return responseProperty.GetString() ?? string.Empty;
     }
 
+    public async Task<string> SendChatAsync(
+        string endpoint,
+        string model,
+        string systemPrompt,
+        IEnumerable<ChatMessageRecord> history,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateEndpoint(endpoint);
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
+        ArgumentNullException.ThrowIfNull(history);
+
+        var config = _configurationService.Current;
+        var timeoutSeconds = config.AI.TimeoutSeconds > 0 ? config.AI.TimeoutSeconds : 60;
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linkedCts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
+
+        var messagesList = new List<object>();
+        if (!string.IsNullOrWhiteSpace(systemPrompt))
+        {
+            messagesList.Add(new { role = "system", content = systemPrompt });
+        }
+
+        foreach (var msg in history)
+        {
+            messagesList.Add(new { role = msg.Role, content = msg.Content });
+        }
+
+        var requestBody = new
+        {
+            model = model,
+            messages = messagesList,
+            stream = false,
+            options = new
+            {
+                temperature = 0.3
+            }
+        };
+
+        var baseUri = endpoint.TrimEnd('/');
+        var content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json");
+
+        _logger.LogInformation("Sending chat turn to Ollama model {Model} at {Endpoint} (Messages: {Count})",
+            model, endpoint, messagesList.Count);
+
+        using var response = await _httpClient.PostAsync($"{baseUri}/api/chat", content, linkedCts.Token).ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errText = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+            throw new HttpRequestException($"Ollama chat failed with HTTP {(int)response.StatusCode}: {errText}");
+        }
+
+        var responseString = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+        if (responseString.Length > MaxResponseSizeBytes)
+        {
+            throw new InvalidOperationException($"Ollama chat response exceeded maximum allowable buffer of {MaxResponseSizeBytes} bytes.");
+        }
+
+        using var doc = JsonDocument.Parse(responseString);
+        if (doc.RootElement.TryGetProperty("message", out var messageProp) &&
+            messageProp.TryGetProperty("content", out var contentProp))
+        {
+            return contentProp.GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
+    }
+
     private static IReadOnlyList<string> ParseModelsFromJson(string json)
     {
         var result = new List<string>();

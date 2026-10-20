@@ -193,6 +193,10 @@
                                                 <TextBlock Grid.Column="1" Text="{Binding FileName}" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" Margin="10,0" TextTrimming="CharacterEllipsis" />
                                                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                                     <TextBlock Text="{Binding ConfidenceLevel, StringFormat='{}Confidence: {0}'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                                    <Button Style="{StaticResource SecondaryButtonStyle}" Content="💬 Ask AI"
+                                                            Command="{Binding DataContext.AddCandidateToChatContextCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding CandidateId}"
+                                                            Height="24" Padding="8,0" FontSize="11" Margin="0,0,6,0" />
                                                     <Button Style="{StaticResource SecondaryButtonStyle}" Content="🔍 Inspect in Inventory"
                                                             Command="{Binding DataContext.InspectCandidateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                             CommandParameter="{Binding CandidateId}"
@@ -249,6 +253,97 @@
                 </Grid>
 
             </StackPanel>
+
+            <!-- F5: AI Follow-up Chat ("Ask about this scan") -->
+            <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,0,20">
+                <StackPanel>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="AI Follow-up Chat (Ask About This Scan)" FontSize="15" FontWeight="SemiBold" />
+                            <TextBlock Text="Ask questions about candidates, storage patterns, or review criteria grounded strictly in this scan's metadata. Advisory-only."
+                                       Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,2,0,0" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Style="{StaticResource SecondaryButtonStyle}" Content="🗑 Clear Chat"
+                                Command="{Binding ClearChatHistoryCommand}" Height="28" Padding="10,0" FontSize="11" />
+                    </Grid>
+
+                    <!-- Chat Messages List -->
+                    <Border Background="#16181D" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="6" MinHeight="140" MaxHeight="300" Margin="0,0,0,12" Padding="8">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <TextBlock Text="No chat messages yet for this scan. Type a question below or click '💬 Ask AI' on any candidate above."
+                                           Foreground="{StaticResource TextMutedBrush}" FontSize="12" Margin="8">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding ChatMessages.Count}" Value="0">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <ItemsControl ItemsSource="{Binding ChatMessages}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border CornerRadius="6" Padding="10,8" Margin="0,4" MaxWidth="850">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="#1E293B" />
+                                                        <Setter Property="HorizontalAlignment" Value="Left" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Sender}" Value="user">
+                                                                <Setter Property="Background" Value="#1E3A5F" />
+                                                                <Setter Property="HorizontalAlignment" Value="Right" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <StackPanel>
+                                                    <Grid Margin="0,0,0,4">
+                                                        <TextBlock Text="{Binding Sender, StringFormat='{}• {0}'}" FontWeight="Bold" FontSize="11" Foreground="{StaticResource AccentHoverBrush}" />
+                                                        <TextBlock Text="{Binding CreatedAtUtc, StringFormat='{}{0:HH:mm}'}" HorizontalAlignment="Right" FontSize="10" Foreground="{StaticResource TextMutedBrush}" />
+                                                    </Grid>
+                                                    <TextBlock Text="{Binding Message}" FontSize="12" TextWrapping="Wrap" LineHeight="17" Foreground="{StaticResource TextPrimaryBrush}" />
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Border>
+
+                    <!-- Chat Input Strip -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Text="{Binding ChatInputText, UpdateSourceTrigger=PropertyChanged}"
+                                 Height="36" VerticalContentAlignment="Center" Padding="10,0" FontSize="12"
+                                 Background="{StaticResource CardElevatedBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
+                                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                            <TextBox.InputBindings>
+                                <KeyBinding Key="Return" Command="{Binding SendChatMessageCommand}" />
+                            </TextBox.InputBindings>
+                        </TextBox>
+                        <Button Grid.Column="1" Style="{StaticResource PrimaryButtonStyle}" Content="Send 💬"
+                                Command="{Binding SendChatMessageCommand}"
+                                Height="36" Padding="18,0" Margin="8,0,0,0" />
+                    </Grid>
+
+                    <Grid Margin="0,6,0,0">
+                        <TextBlock Text="{Binding ChatStatusMessage}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                    </Grid>
+                </StackPanel>
+            </Border>
 
             <!-- AI Reports History Section -->
             <Border Style="{StaticResource CardBorderStyle}">

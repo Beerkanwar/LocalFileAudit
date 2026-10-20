@@ -133,6 +133,16 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
                 FOREIGN KEY (ScanRunId) REFERENCES ScanRuns(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS ChatMessages (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ScanRunId TEXT NOT NULL,
+                Role TEXT NOT NULL,
+                Content TEXT NOT NULL,
+                TimestampUtc TEXT NOT NULL,
+                ContextCandidateIds TEXT,
+                FOREIGN KEY (ScanRunId) REFERENCES ScanRuns(Id) ON DELETE CASCADE
+            );
+
             -- Indexes for high performance querying
             CREATE INDEX IF NOT EXISTS idx_files_scan_path ON Files(ScanRunId, FullPath);
             CREATE INDEX IF NOT EXISTS idx_files_scan_parent ON Files(ScanRunId, ParentPath);
@@ -143,6 +153,7 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             CREATE INDEX IF NOT EXISTS idx_errors_scan ON ScanErrors(ScanRunId);
             CREATE INDEX IF NOT EXISTS idx_aireports_scan ON AiReports(ScanRunId);
             CREATE INDEX IF NOT EXISTS idx_analysis_scan ON AnalysisResults(ScanRunId);
+            CREATE INDEX IF NOT EXISTS idx_chat_scan ON ChatMessages(ScanRunId);
         ";
 
         await using var cmd = connection.CreateCommand();

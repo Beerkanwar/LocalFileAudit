@@ -11,6 +11,7 @@ public interface IOllamaClient
     Task<AiConnectionStatus> CheckConnectionAsync(string endpoint, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<string>> GetAvailableModelsAsync(string endpoint, CancellationToken cancellationToken = default);
     Task<string> GenerateJsonAsync(string endpoint, string model, string systemPrompt, string prompt, CancellationToken cancellationToken = default);
+    Task<string> SendChatAsync(string endpoint, string model, string systemPrompt, IEnumerable<ChatMessageRecord> history, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -24,4 +25,7 @@ public interface IAiAnalysisService
     Task<string> SaveAiReportAsync(Guid scanRunId, string model, AiAnalysisResponse response, CancellationToken cancellationToken = default);
     Task<(string CsvPath, string MdPath)> ExportAiReviewTableAsync(Guid scanRunId, string model, AiAnalysisResponse response, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AiReportRecord>> GetHistoryAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ChatMessageRecord>> GetChatHistoryAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task<ChatMessageRecord> SendChatMessageAsync(Guid scanRunId, string userMessage, IEnumerable<long>? candidateIdsContext = null, string? modelOverride = null, CancellationToken cancellationToken = default);
+    Task ClearChatHistoryAsync(Guid scanRunId, CancellationToken cancellationToken = default);
 }

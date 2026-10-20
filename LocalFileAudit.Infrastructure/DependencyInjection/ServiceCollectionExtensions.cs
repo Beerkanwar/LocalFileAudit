@@ -35,6 +35,10 @@ public static class ServiceCollectionExtensions
         // Duplicate Detection
         services.AddSingleton<IDuplicateAnalysisEngine, DuplicateAnalysisEngine>();
 
+        // Archive Planning & Verification (Safety Invariant: Strictly Read-Only)
+        services.AddSingleton<IArchiveVerificationService, LocalFileAudit.Infrastructure.Archive.ArchiveVerificationService>();
+        services.AddSingleton<IArchivePlannerService, LocalFileAudit.Infrastructure.Archive.ArchivePlannerService>();
+
         return services;
     }
 }

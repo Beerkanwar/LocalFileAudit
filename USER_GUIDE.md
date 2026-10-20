@@ -13,107 +13,112 @@ Launch `LocalFileAudit.App.exe`. The application runs as a standard desktop prog
 
 ### Main Navigation
 The left sidebar provides access to all major features:
-- **📊 Dashboard** — High-level storage metrics, extension distributions, and space hotspots.
-- **⚡ Scanner** — Configure drives, start, pause, resume, and monitor scans.
-- **📁 File Inventory** — Search, filter, and inspect discovered files across runs.
-- **📑 Duplicates** — Identify duplicate files by size clustering and SHA-256 verification.
-- **📈 Analysis & Reports** — Review deterministic metrics and generate offline reports.
-- **🤖 AI Insights** — Optional narrative reviews and storage advice powered by local Ollama.
-- **📜 Scan History** — Browse past scan sessions, resumption states, and error records.
-- **⚙️ Settings** — Configure scanning preferences, Ollama endpoints, and database backups.
+- **📊 Dashboard** — High-level storage metrics, squarified storage treemap, and space hotspots.
+- **🔍 Scans** — Configure drives, start, pause, resume, and monitor scans.
+- **📋 File Inventory** — Search, filter, export full inventory (CSV), and inspect discovered files.
+- **📈 Storage Analysis** — Review deterministic metrics and generate offline reports.
+- **📑 Duplicate Analysis** — Identify duplicate files by size clustering with historical hash reuse.
+- **🤖 AI Reports** — Narrative reviews, one-click table exports, and interactive follow-up chat via Ollama.
+- **⚖ Run Comparison** — Track filesystem changes (New, Deleted, Modified) between any two scans.
+- **📦 Archive Plan** — Organize cold files into batches, monitor disk space, and generate reviewable Robocopy scripts.
+- **✓ Archive Verifier** — Read-only verification comparing source and backup folders by relative paths, sizes, and SHA-256.
+- **⚙ Settings** — Configure scanning preferences, Ollama limits/timeouts, and database backups.
 
 ---
 
 ## 2. Running a Filesystem Scan
 
-1. Click on **Scanner** in the left sidebar.
+1. Click on **Scans** in the left sidebar.
 2. Under **Select Drives or Folders**, check the drive letters (e.g., `C:\`, `D:\`) or enter a specific directory path you wish to scan.
 3. Configure scan options:
    - **Low-Impact Mode (Recommended for background scanning):** Introduces micro-delays between directory reads to keep CPU and disk usage low.
-   - **Follow Reparse Points:** Leave unchecked to safely skip NTFS junctions and symbolic links to prevent circular loops.
+   - **Follow Reparse Points:** Leave unchecked to safely skip NTFS junctions and symbolic links to prevent circular loops. Cloud placeholders (OneDrive/Dropbox) are recorded without triggering forced local hydration.
 4. Click **▶ Start Scan**.
-5. During the scan, you will see real-time metrics:
-   - **Files Discovered** and **Total Size**.
-   - **Elapsed Time** and **Current Scanning Directory**.
-   - **Pause / Resume:** Temporarily pause the scan at any time to free up disk bandwidth.
-   - **Cancel:** Safely abort the scan without losing already committed batches.
+5. During the scan, real-time metrics update smoothly. When complete, a desktop notification toast and audio chime alert you.
 
 ---
 
-## 3. Exploring the Dashboard
+## 3. Exploring Dashboard & Squarified Treemap
 
-Once a scan completes (or is paused), the **Dashboard** gives you immediate visual insights:
-- **KPI Cards:** Overview of total logical size, total file count, and duration.
-- **Extension Distribution:** Progress bars showing storage share by file type (e.g., `.mkv`, `.iso`, `.zip`, `.exe`).
-- **Largest Files:** Quick preview of top space consumers.
+The **Dashboard** gives you immediate visual insights:
+- **KPI Cards:** Volume capacity, total logical size, total file count, and cloud placeholder counts.
+- **Storage Treemap (F2):** Visual squarified treemap rendering the top directory consumers. Rectangles are proportional to recursive directory size with distinct extension color gradients. Hover to see paths and percentages; right-click or click to Reveal in Explorer or Copy Path.
+- **Extension Distribution:** Progress bars showing storage share by file type.
 - **Storage Hotspots:** Directories consuming the most disk space.
-- **Quick Links:** Click any card to navigate directly to detailed views.
 
 ---
 
-## 4. Searching and Filtering the File Inventory
+## 4. Searching and Exporting the File Inventory
 
-Navigate to **File Inventory** to search millions of files:
-- **Search Query:** Search by file name or partial directory path.
-- **Extension Filter:** Filter by specific extension (e.g., `.log`, `.tmp`, `.mp4`).
-- **Size Bounds:** Set minimum and maximum file size thresholds (e.g., files > 500 MB).
-- **Date Filters:** Filter by last modified timestamp.
-- **Sorting:** Sort columns by File Name, Size (Descending/Ascending), or Modification Date.
-- **Inspector Panel:** Select any row to view full file path, creation/access timestamps, attributes, and deterministic classification rule badges (e.g., `RULE_LARGE_FILE`, `RULE_OLD_MEDIA`).
-- **Safe Actions:** Use **📋 Copy Path** or **📂 Reveal in Explorer** to locate files safely in Windows Explorer.
+Navigate to **File Inventory**:
+- **Search Query:** Search across millions of files by path or file name.
+- **Filters:** Filter by extension, minimum/maximum size, or modification date.
+- **Inspector Panel:** Displays logical size, on-disk allocated size (`GetCompressedFileSize`), timestamps, and classification badges.
+- **Full Inventory CSV Export (F1):** Click **📥 Export Full Inventory (CSV)** to stream-export millions of rows to CSV with real-time progress, cancellation support, and optional extension/size filters.
+- **🤖 Ask AI Button:** Click **🤖 Ask AI** in the inspector to inject the selected file directly into the AI Follow-up Chat.
 
 ---
 
-## 5. Detecting Duplicates with SHA-256 Verification
+## 5. Detecting Duplicates with Hash Reuse
 
-Navigate to **Duplicates**:
+Navigate to **Duplicate Analysis**:
 1. Select a completed scan run.
-2. Set the **Minimum Size** threshold (default is 1 MB).
-3. Click **🔍 Find Potential Duplicates (By Size)**:
-   - Groups files with identical byte lengths in milliseconds.
-   - Shows potential wasted space per group.
-4. Click **🔐 Verify Cryptographic Hashes (SHA-256)**:
-   - Computes SHA-256 hashes for clustered files asynchronously with real-time progress.
-   - Discards files whose contents differ, leaving only cryptographically verified duplicate sets.
-5. Review the files in each cluster. Remember: **LocalFileAudit never deletes files**. You can copy paths or open the file in Explorer to manage them manually.
+2. Click **🔍 Find Potential Duplicates (By Size)** to cluster identical file sizes.
+3. Click **🔐 Verify Cryptographic Hashes (SHA-256)**:
+   - Reuses previous hashes for unchanged `(FullPath, SizeBytes, LastWriteTime)` files to finish audits in minutes.
+   - Verifies pre/post hash modification timestamps for newly hashed files.
 
 ---
 
-## 6. Generating Deterministic Reports
+## 6. Run Comparison (Change Tracking)
 
-Navigate to **Analysis & Reports**:
-1. Click **📄 Generate Reports (Offline)**.
-2. The engine atomically creates 8 audit files inside `%LOCALAPPDATA%\LocalFileAudit\reports\scan-<guid>-<timestamp>\`:
-   - `Summary.md` — Markdown executive summary.
-   - `Summary.html` — Fully styled, offline HTML report with charts and metrics.
-   - `ExtensionSummary.csv` — Full spreadsheet of file extension metrics.
-   - `DirectorySummary.csv` — Directory size breakdown.
-   - `ReviewCandidates.csv` — Files classified for review with human-readable explanations.
-   - `ScanErrors.csv` — Any path access or permission errors.
-   - `Inventory.csv` — Top largest files summary.
-   - `Manifest.json` — Audit verification manifest with SHA-256 hashes.
-3. Click **📂 Open Reports Folder** to view and share the files.
+Navigate to **Run Comparison**:
+1. Pick a **Baseline Scan Run** and a **Comparison Scan Run**.
+2. Click **⚖ Compare Runs**:
+   - Compares millions of records by `FullPath`.
+   - Identifies `New`, `Deleted`, `Modified` (size or timestamp delta), and `Unchanged` files.
+   - Visualizes extension-level storage deltas and offers one-click CSV export.
 
 ---
 
-## 7. Using Optional Local AI (Ollama)
+## 7. Archive Batch Planner & Script Generation
 
-To obtain natural language storage summaries:
-1. Ensure Ollama is running locally:
-   ```bash
-   ollama run qwen2.5:7b
-   ```
-2. Navigate to **AI Insights** in LocalFileAudit.
-3. Confirm that the status indicator shows **● Connected (Local Loopback)**.
-4. Click **Generate AI Narrative Review**:
-   - The engine minimizes candidate data and generates an executive review explaining storage patterns and archive recommendations.
-   - Saves an `AI-Review.md` document in your reports directory.
+Navigate to **Archive Plan**:
+1. Click **+ Add Archive Batch**: specify batch name, source directory, planned external destination path (e.g., USB drive `E:\Archive`), and reason.
+2. The planner automatically verifies destination free space via `DriveInfo` and warns if the batch exceeds available drive capacity.
+3. Click **📝 Generate Scripts & Manifest**:
+   - `ArchiveManifest.csv`: Machine-readable batch manifest.
+   - `preview-archive.ps1`: Ready-to-review Robocopy preview script using `/L` (list-only mode; zero file operations executed).
+   - `copy-archive.ps1`: Safe copy script with prominent warning headers ("REVIEW BEFORE RUNNING — this app never executes file operations").
+4. Run scripts manually in PowerShell. When completed, verify the batch using the Archive Verifier and mark it **Verified**.
 
 ---
 
-## 8. Database Backups & Settings
+## 8. Archive Verification (Read-Only)
+
+Navigate to **Archive Verifier**:
+1. Pick your **Source Directory** and **Destination Directory** (nested directory recursion guard prevents overlapping selections).
+2. Check **Calculate SHA-256 Hashes** if cryptographic match verification is desired.
+3. Click **✓ Verify Archive**:
+   - Opens files strictly with `FileAccess.Read` on both source and destination.
+   - Maps relative paths and detects: `Match`, `MissingAtDestination`, `SizeMismatch`, `HashMismatch`, and `ExtraAtDestination`.
+4. Click **📥 Export Verification CSV** to save `ArchiveVerification-<timestamp>.csv`.
+
+---
+
+## 9. Local AI Reports & Follow-up Chat (Ollama)
+
+Navigate to **AI Reports**:
+1. Test your local Ollama connection on `http://127.0.0.1:11434`.
+2. Generate executive summaries and review candidates.
+3. Click **📥 Export Review Table (CSV / MD)** for tabular exports.
+4. **Follow-up Chat (F5):** Ask questions about candidates, storage patterns, or retention criteria grounded strictly in the current scan's metadata. History is saved locally in SQLite and can be cleared at any time.
+
+---
+
+## 10. Database Backups & Settings
 
 In **Settings**:
-- **Ollama Settings:** Configure model name, response timeout, and request size limits.
+- **Ollama Settings:** Configure model name, timeout (seconds), and maximum request payload limits.
 - **Database Backup:** Click **📦 Backup Database (Online Snapshot)** to create a clean, consistent snapshot of your SQLite inventory using `VACUUM INTO`.
 - **Open Data Directories:** Quick shortcuts to open the database, logs, and reports directories in Windows Explorer.

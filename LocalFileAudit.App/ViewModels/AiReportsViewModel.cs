@@ -65,12 +65,22 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     [ObservableProperty]
     private string _lastGeneratedReportPath = string.Empty;
 
+    [ObservableProperty]
+    private string _chatInputText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isChatSending;
+
+    [ObservableProperty]
+    private string _chatStatusMessage = "Ask a question about this scan...";
+
     public ObservableCollection<string> AvailableModels { get; } = new();
     public ObservableCollection<ScanRun> AvailableScans { get; } = new();
     public ObservableCollection<AiRecommendation> Recommendations { get; } = new();
     public ObservableCollection<string> ReviewPlan { get; } = new();
     public ObservableCollection<string> SafetyWarnings { get; } = new();
     public ObservableCollection<AiReportRecord> AiReportHistory { get; } = new();
+    public ObservableCollection<ChatMessageRecord> ChatMessages { get; } = new();
 
     public AiReportsViewModel(
         IOllamaClient ollamaClient,
@@ -329,6 +339,122 @@ public sealed partial class AiReportsViewModel : ViewModelBase
         {
             StatusMessage = $"Failed to export AI tables: {ex.Message}";
             _logger.LogError(ex, "Failed to export AI review tables from UI");
+        }
+    }
+
+    partial void OnSelectedScanChanged(ScanRun? value)
+    {
+        _ = LoadChatHistoryAsync(value?.Id);
+    }
+
+    public async Task LoadChatHistoryAsync(Guid? scanId)
+    {
+        try
+        {
+            ChatMessages.Clear();
+            if (scanId == null) return;
+
+            var history = await _aiService.GetChatHistoryAsync(scanId.Value);
+            foreach (var msg in history)
+            {
+                ChatMessages.Add(msg);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load chat history for scan {ScanId}", scanId);
+        }
+    }
+
+    [RelayCommand]
+    public async Task SendChatMessageAsync()
+    {
+        if (SelectedScan == null)
+        {
+            ChatStatusMessage = "Please select a target scan run first.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(SelectedModel))
+        {
+            ChatStatusMessage = "Please select a local Ollama model first.";
+            return;
+        }
+
+        var message = ChatInputText.Trim();
+        if (string.IsNullOrEmpty(message)) return;
+
+        ChatInputText = string.Empty;
+        IsChatSending = true;
+        ChatStatusMessage = "Waiting for local model response...";
+
+        var tempUserMsg = new ChatMessageRecord
+        {
+            ScanRunId = SelectedScan.Id,
+            Sender = "user",
+            Message = message,
+            CreatedAtUtc = DateTime.UtcNow
+        };
+        ChatMessages.Add(tempUserMsg);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+
+        try
+        {
+            var assistantMsg = await _aiService.SendChatMessageAsync(
+                SelectedScan.Id,
+                message,
+                candidateIdsContext: null,
+                modelOverride: SelectedModel,
+                cancellationToken: cts.Token);
+
+            ChatMessages.Add(assistantMsg);
+            ChatStatusMessage = "Ready";
+        }
+        catch (OperationCanceledException)
+        {
+            ChatStatusMessage = "Inference timed out or was cancelled.";
+        }
+        catch (Exception ex)
+        {
+            ChatStatusMessage = $"Error: {ex.Message}";
+            _logger.LogError(ex, "AI chat failed");
+        }
+        finally
+        {
+            IsChatSending = false;
+        }
+    }
+
+    [RelayCommand]
+    public async Task ClearChatHistoryAsync()
+    {
+        if (SelectedScan == null) return;
+
+        try
+        {
+            await _aiService.ClearChatHistoryAsync(SelectedScan.Id);
+            ChatMessages.Clear();
+            ChatStatusMessage = "Chat history cleared.";
+        }
+        catch (Exception ex)
+        {
+            ChatStatusMessage = $"Failed to clear history: {ex.Message}";
+            _logger.LogError(ex, "Failed to clear chat history");
+        }
+    }
+
+    [RelayCommand]
+    public void AddCandidateToChatContext(long candidateId)
+    {
+        var rec = Recommendations.FirstOrDefault(r => r.CandidateId == candidateId);
+        if (rec != null)
+        {
+            ChatInputText = $"Can you explain candidate #{candidateId} ({rec.FileName}, category: {rec.SuggestedCategory})? Why is it flagged and what should I verify?";
+        }
+        else
+        {
+            ChatInputText = $"Can you explain candidate #{candidateId} from this scan and give safety advice?";
         }
     }
 }

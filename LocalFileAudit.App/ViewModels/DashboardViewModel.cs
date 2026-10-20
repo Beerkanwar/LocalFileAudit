@@ -47,6 +47,9 @@ public sealed partial class DashboardViewModel : ViewModelBase
     private string _cloudPlaceholderStatsText = "0 files";
 
     [ObservableProperty]
+    private long _totalLogicalSizeBytes;
+
+    [ObservableProperty]
     private bool _hasScanData;
 
     [ObservableProperty]
@@ -54,6 +57,7 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
     public ObservableCollection<ExtensionSummary> TopExtensions { get; } = new();
     public ObservableCollection<DirectorySummary> LargestDirectories { get; } = new();
+    public ObservableCollection<DirectorySummary> TreemapDirectories { get; } = new();
     public ObservableCollection<FileRecord> LargestFiles { get; } = new();
 
     public DashboardViewModel(
@@ -94,6 +98,8 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 // Load deterministic metrics for dashboard charts & hotspots
                 var metrics = await _analysisEngine.AnalyzeScanAsync(latest.Id);
 
+                TotalLogicalSizeBytes = metrics.TotalLogicalSizeBytes;
+
                 TopExtensions.Clear();
                 foreach (var ext in metrics.TopExtensions.Take(5))
                 {
@@ -104,6 +110,12 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 foreach (var dir in metrics.LargestDirectories.Take(5))
                 {
                     LargestDirectories.Add(dir);
+                }
+
+                TreemapDirectories.Clear();
+                foreach (var dir in metrics.LargestDirectories.Take(60))
+                {
+                    TreemapDirectories.Add(dir);
                 }
 
                 LargestFiles.Clear();

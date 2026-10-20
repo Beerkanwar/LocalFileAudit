@@ -39,6 +39,8 @@ public sealed partial class InventoryViewModel : ViewModelBase
     private readonly ILogger<InventoryViewModel> _logger;
     private CancellationTokenSource? _exportCts;
 
+    public Action<string, Guid?>? OnNavigateToAiChat { get; set; }
+
     [ObservableProperty]
     private string _searchText = string.Empty;
 
@@ -544,5 +546,13 @@ public sealed partial class InventoryViewModel : ViewModelBase
             _exportCts.Cancel();
             ExportStatusText = "Cancelling export...";
         }
+    }
+
+    [RelayCommand]
+    public void AskAiAboutSelectedFile()
+    {
+        if (SelectedFile == null) return;
+        var query = $"Can you explain file '{SelectedFile.FileName}' ({SelectedFile.SizeBytes:N0} bytes, extension: {SelectedFile.Extension}) in scan {SelectedScanRun?.Id}? What is the recommended retention or audit policy?";
+        OnNavigateToAiChat?.Invoke(query, SelectedScanRun?.Id);
     }
 }

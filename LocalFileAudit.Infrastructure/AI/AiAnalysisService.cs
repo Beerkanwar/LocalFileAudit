@@ -426,4 +426,90 @@ You MUST reply with a single, valid JSON object matching this exact structure:
     {
         return await _repository.GetAiReportsAsync(scanRunId, cancellationToken).ConfigureAwait(false);
     }
+
+    public async Task<IReadOnlyList<ChatMessageRecord>> GetChatHistoryAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        return await _repository.GetChatMessagesAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task ClearChatHistoryAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        await _repository.DeleteChatMessagesAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Cleared chat history for scan {ScanRunId}", scanRunId);
+    }
+
+    public async Task<ChatMessageRecord> SendChatMessageAsync(
+        Guid scanRunId,
+        string userMessage,
+        IEnumerable<long>? candidateIdsContext = null,
+        string? modelOverride = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
+
+        var config = _configurationService.Current;
+        var model = !string.IsNullOrWhiteSpace(modelOverride)
+            ? modelOverride
+            : (!string.IsNullOrWhiteSpace(config.AI.ModelName) ? config.AI.ModelName : "qwen2.5:7b");
+        var endpoint = config.AI.Endpoint;
+
+        var metrics = await _analysisEngine.AnalyzeScanAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+
+        var candidateContextList = new List<string>();
+        if (candidateIdsContext != null)
+        {
+            foreach (var cid in candidateIdsContext)
+            {
+                var f = await _repository.GetFileByIdAsync(cid, cancellationToken).ConfigureAwait(false);
+                if (f != null)
+                {
+                    candidateContextList.Add($"[File Context: Name={f.FileName}, Size={f.SizeBytes:N0} bytes, Ext={f.Extension}, Modified={f.LastWriteTimeUtc:yyyy-MM-dd}]");
+                }
+            }
+        }
+
+        var candidateContextStr = candidateContextList.Count > 0 ? string.Join("\n", candidateContextList) : null;
+        var userRecord = new ChatMessageRecord
+        {
+            ScanRunId = scanRunId,
+            Role = "user",
+            Content = candidateContextStr != null ? $"{candidateContextStr}\n\nUser Question: {userMessage}" : userMessage,
+            TimestampUtc = DateTime.UtcNow,
+            ContextCandidateIds = candidateIdsContext != null ? string.Join(",", candidateIdsContext) : null
+        };
+
+        await _repository.InsertChatMessageAsync(userRecord, cancellationToken).ConfigureAwait(false);
+
+        // Build system prompt with data-minimization framing & safety guard
+        var systemPrompt = new StringBuilder();
+        systemPrompt.AppendLine("You are a local storage decision advisor for the LocalFileAudit desktop application.");
+        systemPrompt.AppendLine("CRITICAL SAFETY INVARIANT: You are strictly advisory-only. NEVER recommend automatic deletions, destructive PowerShell scripts, or moving files without explicit human review.");
+        systemPrompt.AppendLine("Your purpose is to answer questions about this specific scan run, explain storage hotspots, candidate categories (ArchiveCandidate, CleanupCandidate, Investigate), and suggest verification steps.");
+        systemPrompt.AppendLine();
+        systemPrompt.AppendLine("Scan Summary Metadata:");
+        systemPrompt.AppendLine($"- Total Inventoried Files: {metrics.TotalFiles:N0}");
+        systemPrompt.AppendLine($"- Total Logical Size: {metrics.TotalLogicalSizeBytes / (1024.0 * 1024.0 * 1024.0):F2} GB");
+        systemPrompt.AppendLine($"- Scanned Roots: {metrics.SelectedDrives}");
+        systemPrompt.AppendLine($"- Review Candidates: {metrics.ReviewCandidates.Count:N0} files");
+        if (metrics.TopExtensions.Count > 0)
+        {
+            systemPrompt.AppendLine($"- Top Extensions: {string.Join(", ", metrics.TopExtensions.Take(5).Select(e => $"{e.Extension} ({e.PercentageOfTotalSize:F1}%)"))}");
+        }
+
+        var history = await _repository.GetChatMessagesAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+        var recentHistory = history.TakeLast(10).ToList();
+
+        var assistantReply = await _ollamaClient.SendChatAsync(endpoint, model, systemPrompt.ToString(), recentHistory, cancellationToken).ConfigureAwait(false);
+
+        var assistantRecord = new ChatMessageRecord
+        {
+            ScanRunId = scanRunId,
+            Role = "assistant",
+            Content = assistantReply,
+            TimestampUtc = DateTime.UtcNow
+        };
+
+        await _repository.InsertChatMessageAsync(assistantRecord, cancellationToken).ConfigureAwait(false);
+        return assistantRecord;
+    }
 }

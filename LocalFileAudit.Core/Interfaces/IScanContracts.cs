@@ -46,6 +46,9 @@ public interface IScanRepository
     Task<FileRecord?> GetFileByIdAsync(long fileId, CancellationToken cancellationToken = default);
     Task<RunComparisonResult> CompareScanRunsAsync(Guid baselineRunId, Guid targetRunId, CancellationToken cancellationToken = default);
     Task ExportComparisonCsvAsync(RunComparisonResult comparison, string destinationPath, CancellationToken cancellationToken = default);
+    Task InsertChatMessageAsync(ChatMessageRecord message, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<ChatMessageRecord>> GetChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task DeleteChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -40,6 +40,14 @@
                 <views:CompareRunsView />
             </DataTemplate>
 
+            <DataTemplate DataType="{x:Type vm:ArchivePlanViewModel}">
+                <views:ArchivePlanView />
+            </DataTemplate>
+
+            <DataTemplate DataType="{x:Type vm:ArchiveVerificationViewModel}">
+                <views:ArchiveVerificationView />
+            </DataTemplate>
+
             <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
                 <views:SettingsView />
             </DataTemplate>
