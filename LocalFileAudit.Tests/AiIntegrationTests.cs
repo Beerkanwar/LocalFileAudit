@@ -373,7 +373,8 @@ public class AiIntegrationTests : IDisposable
         var ex = await Assert.ThrowsAsync<TimeoutException>(() =>
             client.GenerateJsonAsync("http://127.0.0.1:11434", "qwen3:4b", "system", "prompt"));
 
-        Assert.Contains("timed out after 1s", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("timed out", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("configured limit: 1s", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Settings", ex.Message);
     }
 

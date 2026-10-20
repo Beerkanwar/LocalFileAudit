@@ -48,8 +48,8 @@ public sealed class AiAnalysisService : IAiAnalysisService
     }
     private object BuildInferencePayload(StorageMetricsSummary summary, bool redactPaths)
     {
-        var maxCandidates = _configurationService.Current.AI.MaxPayloadCandidates;
-        if (maxCandidates <= 0) maxCandidates = 25;
+        var configured = _configurationService.Current.AI.MaxPayloadCandidates;
+        var maxCandidates = configured > 0 ? Math.Min(configured, 25) : 25;
 
         return new
         {
@@ -80,8 +80,8 @@ public sealed class AiAnalysisService : IAiAnalysisService
                 Extension = c.Extension,
                 SizeMb = Math.Round(c.SizeBytes / (1024.0 * 1024.0), 2),
                 DeterministicCategory = c.Category.ToString(),
-                RuleExplanation = c.Explanation != null && c.Explanation.Length > 120
-                    ? c.Explanation.Substring(0, 117) + "..."
+                RuleExplanation = c.Explanation != null && c.Explanation.Length > 80
+                    ? c.Explanation.Substring(0, 77) + "..."
                     : c.Explanation,
                 LastModifiedUtc = c.LastWriteTimeUtc?.ToString("yyyy-MM-dd")
             })

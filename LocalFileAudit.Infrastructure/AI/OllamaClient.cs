@@ -26,6 +26,14 @@ public sealed class OllamaClient : IOllamaClient
         ILogger<OllamaClient> logger)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        try
+        {
+            _httpClient.Timeout = Timeout.InfiniteTimeSpan;
+        }
+        catch (InvalidOperationException)
+        {
+            // Best effort in test environments if client instance already started requests
+        }
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -132,10 +140,13 @@ public sealed class OllamaClient : IOllamaClient
         ValidateEndpoint(endpoint);
 
         var baseUri = endpoint.TrimEnd('/');
-        using var response = await _httpClient.GetAsync($"{baseUri}/api/tags", cancellationToken).ConfigureAwait(false);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        using var response = await _httpClient.GetAsync($"{baseUri}/api/tags", timeoutCts.Token).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var json = await response.Content.ReadAsStringAsync(timeoutCts.Token).ConfigureAwait(false);
         return ParseModelsFromJson(json);
     }
 
@@ -166,7 +177,7 @@ public sealed class OllamaClient : IOllamaClient
             options = new
             {
                 temperature = 0.1,
-                num_ctx = 8192
+                num_ctx = 4096
             }
         };
 
@@ -175,6 +186,7 @@ public sealed class OllamaClient : IOllamaClient
 
         _logger.LogInformation("Sending inference request to Ollama model {Model} at {Endpoint} (Timeout: {Timeout}s)", model, endpoint, timeoutSeconds);
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         HttpResponseMessage response;
         try
         {
@@ -182,8 +194,9 @@ public sealed class OllamaClient : IOllamaClient
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Ollama inference timed out after {Timeout}s", timeoutSeconds);
-            throw new TimeoutException($"Ollama inference timed out after {timeoutSeconds}s while generating response from model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
+            var elapsedSec = (int)Math.Round(sw.Elapsed.TotalSeconds);
+            _logger.LogWarning("Ollama inference timed out after {Elapsed}s (configured limit: {Timeout}s)", elapsedSec, timeoutSeconds);
+            throw new TimeoutException($"Ollama inference timed out after {elapsedSec}s (configured limit: {timeoutSeconds}s) while generating response from model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
         }
 
         using (response)
@@ -246,7 +259,7 @@ public sealed class OllamaClient : IOllamaClient
             options = new
             {
                 temperature = 0.3,
-                num_ctx = 8192
+                num_ctx = 4096
             }
         };
 
@@ -256,6 +269,7 @@ public sealed class OllamaClient : IOllamaClient
         _logger.LogInformation("Sending chat turn to Ollama model {Model} at {Endpoint} (Messages: {Count})",
             model, endpoint, messagesList.Count);
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         HttpResponseMessage response;
         try
         {
@@ -263,8 +277,9 @@ public sealed class OllamaClient : IOllamaClient
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning("Ollama chat timed out after {Timeout}s", timeoutSeconds);
-            throw new TimeoutException($"Ollama chat timed out after {timeoutSeconds}s while waiting for model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
+            var elapsedSec = (int)Math.Round(sw.Elapsed.TotalSeconds);
+            _logger.LogWarning("Ollama chat timed out after {Elapsed}s (configured limit: {Timeout}s)", elapsedSec, timeoutSeconds);
+            throw new TimeoutException($"Ollama chat timed out after {elapsedSec}s (configured limit: {timeoutSeconds}s) while waiting for model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
         }
 
         using (response)

@@ -252,7 +252,6 @@ public sealed partial class AiReportsViewModel : ViewModelBase
             _lastResponse = response;
             HasAiResults = true;
             StatusMessage = $"AI decision support complete. {Recommendations.Count} recommendations generated and saved to AI-Review.md and AI-Review-Table.csv/.md.";
-            await RefreshHistoryAsync();
         }
         catch (OperationCanceledException) when (_aiCts?.IsCancellationRequested == true)
         {
@@ -274,6 +273,8 @@ public sealed partial class AiReportsViewModel : ViewModelBase
             _aiCts?.Dispose();
             _aiCts = null;
         }
+
+        await RefreshHistoryAsync();
     }
 
     [RelayCommand]
@@ -433,7 +434,8 @@ public sealed partial class AiReportsViewModel : ViewModelBase
         };
         ChatMessages.Add(tempUserMsg);
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var timeoutSec = _configurationService.Current.AI.TimeoutSeconds > 0 ? _configurationService.Current.AI.TimeoutSeconds : 180;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSec));
 
         try
         {
@@ -446,6 +448,12 @@ public sealed partial class AiReportsViewModel : ViewModelBase
 
             ChatMessages.Add(assistantMsg);
             ChatStatusMessage = "Ready";
+        }
+        catch (TimeoutException tex)
+        {
+            ChatMessages.Remove(tempUserMsg);
+            ChatInputText = message;
+            ChatStatusMessage = $"Chat response timed out: {tex.Message}";
         }
         catch (OperationCanceledException)
         {

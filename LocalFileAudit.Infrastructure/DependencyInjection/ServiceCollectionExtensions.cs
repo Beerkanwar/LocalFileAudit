@@ -29,7 +29,10 @@ public static class ServiceCollectionExtensions
 
         // Local Ollama AI
         services.AddHttpClient();
-        services.AddHttpClient<IOllamaClient, LocalFileAudit.Infrastructure.AI.OllamaClient>();
+        services.AddHttpClient<IOllamaClient, LocalFileAudit.Infrastructure.AI.OllamaClient>(client =>
+        {
+            client.Timeout = Timeout.InfiniteTimeSpan;
+        });
         services.AddSingleton<IAiAnalysisService, LocalFileAudit.Infrastructure.AI.AiAnalysisService>();
 
         // Duplicate Detection

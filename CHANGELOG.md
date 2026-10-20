@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.8] - 2026-10-21
+
+### Fixed
+- **HttpClient Default Timeout Premature Abort (99s / 1m39s):**
+  - .NET's `HttpClient.Timeout` defaults to 100 seconds (`1m40s`). Even when users configured higher timeouts (such as 600s in Settings), `HttpClient` internally aborted requests at ~99 seconds (`1m39s`), cancelling Ollama generation mid-inference.
+  - Configured `client.Timeout = Timeout.InfiniteTimeSpan` on `IOllamaClient` HTTP client registration in DI and safely initialized in `OllamaClient` constructor so request lifetime is strictly governed by the user-configured `CancellationTokenSource`.
+- **Accurate Elapsed Time Reporting on Inference Timeouts:**
+  - Replaced hardcoded timeout string reporting in `OllamaClient` with `Stopwatch.StartNew()` elapsed measurement: `"Ollama inference timed out after {elapsedSec}s (configured limit: {timeoutSeconds}s) while generating response..."`, preventing misleading messages claiming 600s elapsed when an earlier disconnect occurred.
+- **VRAM Footprint & Inference Speed Optimization (4096 Context Window):**
+  - Adjusted `num_ctx = 4096` in `OllamaClient.GenerateJsonAsync` and `SendChatAsync`. An 8192 context window allocated >1.2 GB of KV cache, exceeding the free VRAM on 4GB consumer GPUs (such as NVIDIA GeForce RTX 3050 Laptop GPU) and forcing Ollama to offload layers to host CPU, which throttled generation speed from ~18 tokens/sec down to ~6 tokens/sec. 4096 context allows the entire model and KV cache to fit comfortably inside GPU VRAM.
+  - Bounded candidate review payload in `AiAnalysisService.BuildInferencePayload` to 25 items max and trimmed rule explanations to 80 chars, keeping prompt and response tokens compact (~1000 prompt tokens, ~500 response tokens).
+- **Configurable Chat Turn Timeout & Timeout Handling:**
+  - Updated `AiReportsViewModel.SendChatMessageAsync` to honor `_configurationService.Current.AI.TimeoutSeconds` rather than a hardcoded 120-second timeout, and added explicit `TimeoutException` handling with input restoration.
+- **UI History Auto-Refresh on Inference Completion or Failure:**
+  - Ensured `RefreshHistoryAsync` runs unconditionally in `AiReportsViewModel.RunAiAnalysisAsync` following try/catch/finally, so failed or timed-out inference runs appear immediately in the AI Report History table without requiring a manual refresh.
+- **Settings View Helper Label Synchronization:**
+  - Corrected helper text labels in `SettingsView.xaml` to accurately reflect `TimeoutSeconds` default (180s) and `MaxPayloadCandidates` default (25).
+- **Safeguard Timeout for `GetAvailableModelsAsync`:**
+  - Added linked 15-second cancellation timeout to `OllamaClient.GetAvailableModelsAsync` to prevent hanging if the Ollama daemon stalls while enumerating models.
+
+---
+
 ## [1.3.7] - 2026-10-21
 
 ### Fixed

@@ -179,7 +179,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Response Timeout (Seconds):" VerticalAlignment="Center" FontSize="13" />
                         <TextBox Grid.Column="1" Text="{Binding AiTimeoutSeconds, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" />
-                        <TextBlock Grid.Column="2" Text="(1 to 600, default: 60s)" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" />
+                        <TextBlock Grid.Column="2" Text="(1 to 600, default: 180s)" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" />
                     </Grid>
 
                     <Grid Margin="0,4">
@@ -190,7 +190,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Max Payload Candidates:" VerticalAlignment="Center" FontSize="13" />
                         <TextBox Grid.Column="1" Text="{Binding AiMaxPayloadCandidates, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" />
-                        <TextBlock Grid.Column="2" Text="(1 to 1000, default: 50)" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" />
+                        <TextBlock Grid.Column="2" Text="(1 to 100, default: 25)" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" />
                     </Grid>
                 </StackPanel>
             </Border>
