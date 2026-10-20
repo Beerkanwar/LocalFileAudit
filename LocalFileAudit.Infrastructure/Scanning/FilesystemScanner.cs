@@ -93,7 +93,7 @@ public sealed class FilesystemScanner : IScanEngine
             Status = ScanState.InProgress,
             SelectedDrives = string.Join(";", targets),
             ConfigurationSnapshot = JsonSerializer.Serialize(config),
-            ApplicationVersion = "1.0.0"
+            ApplicationVersion = LocalFileAudit.Core.Common.AppVersion.Current
         };
 
         _logger.LogInformation("Starting new scan {ScanRunId} targeting roots: {Roots}", run.Id, run.SelectedDrives);

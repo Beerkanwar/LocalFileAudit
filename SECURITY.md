@@ -26,14 +26,17 @@ LocalFileAudit operates under a defense-in-depth security model:
 
 ### 1.2 Network Isolation & Loopback Enforcement
 - **Zero Remote Telemetry:** The application makes **zero** outbound network requests to external servers, cloud providers, or analytics services.
-- **Loopback Validation:** The `OllamaClient` enforces loopback verification on the AI endpoint URL:
+- **Loopback Validation:** By default (`AI.RequireLocalEndpoint = true`), the `OllamaClient` strictly enforces loopback verification on the AI endpoint URL:
   ```csharp
-  if (!uri.IsLoopback && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+  if (_configurationService.Current.AI.RequireLocalEndpoint)
   {
-      throw new InvalidOperationException("Remote AI endpoints are strictly prohibited for privacy safety.");
+      if (!uri.IsLoopback && !uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+      {
+          throw new InvalidOperationException("Remote AI endpoints are strictly prohibited for privacy safety.");
+      }
   }
   ```
-  Attempting to configure a remote hostname or external IP triggers an immediate `InvalidOperationException`.
+  Attempting to configure a remote hostname or external IP without intentionally changing configuration triggers an immediate `InvalidOperationException`. Users can explicitly configure a remote server only if desired, but the default is safe and loopback-only.
 
 ### 1.3 Least Privilege Model
 - **No Administrator Elevation:** LocalFileAudit does not request elevation. The application manifest (`app.manifest`) declares:

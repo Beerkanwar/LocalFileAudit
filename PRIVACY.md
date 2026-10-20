@@ -9,7 +9,7 @@ LocalFileAudit is designed from the ground up as a **100% private, local-first u
 - **No Remote Telemetry:** LocalFileAudit does not collect analytics, crash telemetry, user identifiers, or usage statistics.
 - **No Cloud Dependencies:** All indexing, querying, duplicate hashing, and deterministic reporting take place entirely on your device.
 - **Zero Internet Access:** The application requires no internet connection to operate.
-- **Loopback-Only AI:** If you enable the optional AI integration, requests are strictly restricted to local loopback endpoints (`127.0.0.1` or `localhost`). Remote endpoints like OpenAI, Anthropic, or external Ollama instances are actively rejected.
+- **Loopback-Only AI:** By default configuration (`AI.RequireLocalEndpoint = true`), requests are strictly restricted to local loopback endpoints (`127.0.0.1` or `localhost`). Remote endpoints like OpenAI, Anthropic, or external instances are rejected at the client validation layer.
 
 ---
 

@@ -15,7 +15,7 @@ public sealed partial class MainViewModel : ObservableObject
     private string _statusMessage = "Ready - Safe Read-Only Mode Active";
 
     [ObservableProperty]
-    private string _appVersion = "1.0.0 (Desktop Dashboard & Inventory)";
+    private string _appVersion = $"v{LocalFileAudit.Core.Common.AppVersion.Current}";
 
     [ObservableProperty]
     private bool _isSafeModeActive = true;

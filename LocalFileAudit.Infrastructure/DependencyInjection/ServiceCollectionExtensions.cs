@@ -28,8 +28,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IReportGenerator, ReportGenerator>();
 
         // Local Ollama AI
-        services.AddSingleton<HttpClient>();
-        services.AddSingleton<IOllamaClient, LocalFileAudit.Infrastructure.AI.OllamaClient>();
+        services.AddHttpClient();
+        services.AddHttpClient<IOllamaClient, LocalFileAudit.Infrastructure.AI.OllamaClient>();
         services.AddSingleton<IAiAnalysisService, LocalFileAudit.Infrastructure.AI.AiAnalysisService>();
 
         // Duplicate Detection

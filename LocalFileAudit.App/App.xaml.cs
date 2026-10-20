@@ -23,49 +23,62 @@ public partial class App : Application
 
         SetupGlobalExceptionHandling();
 
-        _host = Host.CreateDefaultBuilder(e.Args)
-            .ConfigureServices((context, services) =>
-            {
-                // Infrastructure services (AppEnvironment, ConfigurationValidator, ConfigurationService)
-                services.AddInfrastructureServices();
+        try
+        {
+            _host = Host.CreateDefaultBuilder(e.Args)
+                .ConfigureServices((context, services) =>
+                {
+                    // Infrastructure services (AppEnvironment, ConfigurationValidator, ConfigurationService)
+                    services.AddInfrastructureServices();
 
-                // ViewModels
-                services.AddSingleton<DashboardViewModel>();
-                services.AddSingleton<ScansViewModel>();
-                services.AddSingleton<InventoryViewModel>();
-                services.AddSingleton<StorageAnalysisViewModel>();
-                services.AddSingleton<DuplicateAnalysisViewModel>();
-                services.AddSingleton<AiReportsViewModel>();
-                services.AddSingleton<SettingsViewModel>();
-                services.AddSingleton<MainViewModel>();
+                    // ViewModels
+                    services.AddSingleton<DashboardViewModel>();
+                    services.AddSingleton<ScansViewModel>();
+                    services.AddSingleton<InventoryViewModel>();
+                    services.AddSingleton<StorageAnalysisViewModel>();
+                    services.AddSingleton<DuplicateAnalysisViewModel>();
+                    services.AddSingleton<AiReportsViewModel>();
+                    services.AddSingleton<SettingsViewModel>();
+                    services.AddSingleton<MainViewModel>();
 
-                // Views
-                services.AddSingleton<MainWindow>();
-            })
-            .ConfigureLogging((context, logging) =>
-            {
-                logging.ClearProviders();
-                logging.AddConsole();
-                logging.AddLocalFileLogger();
-            })
-            .Build();
+                    // Views
+                    services.AddSingleton<MainWindow>();
+                })
+                .ConfigureLogging((context, logging) =>
+                {
+                    logging.ClearProviders();
+                    logging.AddConsole();
+                    logging.AddLocalFileLogger();
+                })
+                .Build();
 
-        await _host.StartAsync();
+            await _host.StartAsync();
 
-        var logger = _host.Services.GetRequiredService<ILogger<App>>();
-        logger.LogInformation("LocalFileAudit application starting. Version 1.0.0 (Phase 1). Safe read-only mode active.");
+            var logger = _host.Services.GetRequiredService<ILogger<App>>();
+            logger.LogInformation("LocalFileAudit application starting. Version {Version}. Safe read-only mode active.", LocalFileAudit.Core.Common.AppVersion.Current);
 
-        // Ensure application directories and configuration are initialized
-        var configService = _host.Services.GetRequiredService<IConfigurationService>();
-        await configService.LoadAsync();
+            // Ensure application directories and configuration are initialized
+            var configService = _host.Services.GetRequiredService<IConfigurationService>();
+            await configService.LoadAsync();
 
-        // Ensure SQLite database schema and WAL mode are initialized
-        var dbInit = _host.Services.GetRequiredService<IDatabaseInitializer>();
-        await dbInit.InitializeAsync();
+            // Ensure SQLite database schema and WAL mode are initialized
+            var dbInit = _host.Services.GetRequiredService<IDatabaseInitializer>();
+            await dbInit.InitializeAsync();
 
-        // Launch main window
-        var mainWindow = _host.Services.GetRequiredService<MainWindow>();
-        mainWindow.Show();
+            // Launch main window
+            var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+            mainWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"A critical error occurred while initializing LocalFileAudit:\n\n{ex.Message}\n\nThe application will now close. Please inspect diagnostic logs for more details.",
+                "LocalFileAudit — Fatal Startup Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+
+            Shutdown(-1);
+        }
     }
 
     protected override async void OnExit(ExitEventArgs e)

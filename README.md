@@ -16,7 +16,7 @@ Built with C# and .NET 9 (WPF), LocalFileAudit provides deep visibility into you
 > **"The scanner discovers facts, deterministic rules calculate metrics, optional local AI explains possibilities, and the user makes decisions."**
 
 1. **Permanently Read-Only:** LocalFileAudit will **NEVER** delete, modify, move, or rename your source files. There is zero code in the scanning or analysis engines capable of mutating user files.
-2. **Absolute Privacy:** 100% offline and local. Zero tracking, zero telemetry, and zero data leaving your machine. Network connections to non-loopback endpoints are strictly blocked at the client architecture level.
+2. **Absolute Privacy:** 100% offline and local. Zero tracking, zero telemetry, and zero data leaving your machine. Network connections to non-loopback endpoints are strictly blocked by default configuration at the client architecture level.
 3. **Crash-Safe Persistence:** Powered by SQLite in Write-Ahead Logging (WAL) mode with bounded channel traversal. If interrupted by power loss or system crash, committed records are safely preserved and incomplete scans can be resumed.
 4. **Deterministic Foundation:** Storage analysis, space aggregation, extension statistics, and candidate classification are computed using deterministic math and rule engines—**completely independent of AI**.
 5. **Optional Local AI Review:** Connect to a locally hosted [Ollama](https://ollama.ai) instance for natural language analysis and storage advice. AI recommendations are strictly advisory and never treated as automated action triggers.
@@ -104,10 +104,25 @@ dotnet publish LocalFileAudit.App/LocalFileAudit.App.csproj `
   -r win-x64 `
   --self-contained true `
   -p:PublishSingleFile=true `
+  -p:DebugType=none `
   -o ./publish/
 ```
 
 The resulting executable will be available in `./publish/LocalFileAudit.App.exe`.
+
+---
+
+## ⚠️ Windows SmartScreen & Antivirus Notice
+
+LocalFileAudit is an open-source utility published transparently on GitHub without an expensive commercial Extended Validation (EV) code-signing certificate. Consequently, Windows SmartScreen may display:
+
+> *"Windows protected your PC — Microsoft Defender SmartScreen prevented an unrecognized app from starting."*
+
+To run the application:
+1. Click **More info**.
+2. Click **Run anyway**.
+
+You can review the full source code, inspect all dependencies in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), compile the application directly from source using the instructions above, or verify binary integrity using the `.sha256` checksum on the [Releases page](https://github.com/Beerkanwar/LocalFileAudit/releases).
 
 ---
 

@@ -9,6 +9,8 @@ Welcome to **LocalFileAudit**! This user guide walks you through every screen an
 ### Launching the Application
 Launch `LocalFileAudit.App.exe`. The application runs as a standard desktop program without requiring administrative privileges.
 
+> **Note on Windows SmartScreen:** Because this open-source application is not signed with a paid commercial code-signing certificate, Windows SmartScreen may show a prompt saying *"Windows protected your PC"*. Simply click **More info** and then click **Run anyway**. You can also verify the SHA-256 checksum of your download against the release checksum file.
+
 ### Main Navigation
 The left sidebar provides access to all major features:
 - **📊 Dashboard** — High-level storage metrics, extension distributions, and space hotspots.
