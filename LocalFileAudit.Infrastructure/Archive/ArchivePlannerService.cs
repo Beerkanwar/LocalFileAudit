@@ -173,6 +173,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         foreach (var b in plan.Batches)
         {
             var cleanName = SanitizeIdentifier(b.BatchName);
+            var escapedCleanName = EscapePowerShellSingleQuotedLiteral(cleanName);
             var escapedBatchName = EscapePowerShellSingleQuotedLiteral(b.BatchName);
             var escapedSrc = EscapePowerShellSingleQuotedLiteral(b.SourcePath);
             var escapedDst = EscapePowerShellSingleQuotedLiteral(b.PlannedDestinationPath);
@@ -180,7 +181,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             previewSb.AppendLine($"Write-Host ('--- [PREVIEW ONLY] Processing Batch: ' + '{escapedBatchName}' + ' ---') -ForegroundColor Cyan");
             previewSb.AppendLine($"$src = '{escapedSrc}'");
             previewSb.AppendLine($"$dst = '{escapedDst}'");
-            previewSb.AppendLine($"$log = Join-Path $logDir 'preview-{cleanName}.log'");
+            previewSb.AppendLine($"$log = Join-Path $logDir 'preview-{escapedCleanName}.log'");
             previewSb.AppendLine("if (Test-Path $src) {");
             previewSb.AppendLine("    # Robocopy /L = List only (no file copy occurs)");
             previewSb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /L /NP /R:1 /W:1 /LOG+:$log");
@@ -215,6 +216,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         foreach (var b in plan.Batches)
         {
             var cleanName = SanitizeIdentifier(b.BatchName);
+            var escapedCleanName = EscapePowerShellSingleQuotedLiteral(cleanName);
             var escapedBatchName = EscapePowerShellSingleQuotedLiteral(b.BatchName);
             var escapedSrc = EscapePowerShellSingleQuotedLiteral(b.SourcePath);
             var escapedDst = EscapePowerShellSingleQuotedLiteral(b.PlannedDestinationPath);
@@ -222,7 +224,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             copySb.AppendLine($"Write-Host ('>>> Starting Copy for Batch: ' + '{escapedBatchName}' + ' >>>') -ForegroundColor Yellow");
             copySb.AppendLine($"$src = '{escapedSrc}'");
             copySb.AppendLine($"$dst = '{escapedDst}'");
-            copySb.AppendLine($"$log = Join-Path $logDir 'copy-{cleanName}.log'");
+            copySb.AppendLine($"$log = Join-Path $logDir 'copy-{escapedCleanName}.log'");
             copySb.AppendLine("if (Test-Path $src) {");
             copySb.AppendLine("    # Copy with data, attributes, timestamps. Safe retries, skip junctions.");
             copySb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /NP /R:2 /W:3 /LOG+:$log");
@@ -327,7 +329,8 @@ public sealed class ArchivePlannerService : IArchivePlannerService
                     try
                     {
                         var fi = new FileInfo(file);
-                        if ((fi.Attributes & FileAttributes.ReparsePoint) != 0)
+                        var isReparse = (fi.Attributes & FileAttributes.ReparsePoint) != 0;
+                        if (isReparse && !FilesystemScanner.IsCloudPlaceholder(fi.Attributes))
                         {
                             continue;
                         }
@@ -355,6 +358,19 @@ public sealed class ArchivePlannerService : IArchivePlannerService
 
                 foreach (var subdir in subdirs)
                 {
+                    try
+                    {
+                        var di = new DirectoryInfo(subdir);
+                        var isReparse = (di.Attributes & FileAttributes.ReparsePoint) != 0;
+                        if (isReparse && !FilesystemScanner.IsCloudPlaceholder(di.Attributes))
+                        {
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        // Proceed to push if attributes cannot be read
+                    }
                     stack.Push(subdir);
                 }
 
@@ -386,7 +402,8 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         var sb = new StringBuilder();
         foreach (var c in name)
         {
-            sb.Append(invalid.Contains(c) || c == ' ' ? '_' : c);
+            // Strip invalid filename characters, spaces, and PowerShell meta-characters (', ;, #, `, $)
+            sb.Append(invalid.Contains(c) || c == ' ' || c == '\'' || c == ';' || c == '#' || c == '`' || c == '$' ? '_' : c);
         }
         return sb.ToString();
     }

@@ -301,6 +301,97 @@ public class StorageAnalysisEngineTests : IDisposable
         Assert.Same(completedSummary, cachedSummary);
     }
 
+    [Fact]
+    public async Task GetLargestDirectories_StopsAtScanRoots_AndDoesNotCreateAboveRootAncestors()
+    {
+        var scanId = Guid.NewGuid();
+        await _repository.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.Completed,
+            SelectedDrives = @"D:\Root"
+        });
+
+        var directories = new List<DirectoryRecord>
+        {
+            new() { ScanRunId = scanId, Path = @"D:\Root" },
+            new() { ScanRunId = scanId, Path = @"D:\Root\Child" }
+        };
+        await _repository.InsertDirectoryBatchAsync(directories);
+
+        var files = new List<FileRecord>
+        {
+            new() { ScanRunId = scanId, FullPath = @"D:\Root\Child\file.dat", ParentPath = @"D:\Root\Child", FileName = "file.dat", Extension = ".dat", SizeBytes = 1000 }
+        };
+        await _repository.InsertFileBatchAsync(files);
+
+        var dirs = await _engine.GetLargestDirectoriesAsync(scanId, top: 10);
+
+        // Must include D:\Root and D:\Root\Child, but must NEVER include D:\
+        Assert.DoesNotContain(dirs, d => d.DirectoryPath.Equals(@"D:\", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(dirs, d => d.DirectoryPath.Equals(@"D:\Root", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(dirs, d => d.DirectoryPath.Equals(@"D:\Root\Child", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task ClassifyCandidates_DoesNotPersistOrServeStaleCacheForInProgressScan()
+    {
+        var scanId = Guid.NewGuid();
+        await _repository.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.InProgress,
+            SelectedDrives = @"D:\"
+        });
+
+        // 1. In-progress scan with 1 old .mp4 candidate
+        var file1 = new FileRecord
+        {
+            ScanRunId = scanId,
+            FullPath = @"D:\old_movie.mp4",
+            ParentPath = @"D:\",
+            FileName = "old_movie.mp4",
+            Extension = ".mp4",
+            SizeBytes = 500_000_000,
+            LastWriteTimeUtc = DateTime.UtcNow.AddYears(-5)
+        };
+        await _repository.InsertFileBatchAsync(new[] { file1 });
+
+        // 2. Classify candidates during in-progress scan
+        var inProgressCandidates = await _engine.ClassifyCandidatesAsync(scanId);
+        Assert.Single(inProgressCandidates);
+        Assert.Equal("old_movie.mp4", inProgressCandidates[0].FileName);
+
+        // AnalysisResults table in DB should be empty because scan is not complete!
+        var dbCached = await _repository.GetCachedAnalysisResultsAsync(scanId);
+        Assert.Empty(dbCached);
+
+        // 3. Add second candidate and complete the scan
+        var file2 = new FileRecord
+        {
+            ScanRunId = scanId,
+            FullPath = @"D:\second_movie.mp4",
+            ParentPath = @"D:\",
+            FileName = "second_movie.mp4",
+            Extension = ".mp4",
+            SizeBytes = 600_000_000,
+            LastWriteTimeUtc = DateTime.UtcNow.AddYears(-4)
+        };
+        await _repository.InsertFileBatchAsync(new[] { file2 });
+        await _repository.UpdateScanRunStatusAsync(scanId, ScanState.Completed, DateTime.UtcNow, 2, 1, 0);
+
+        // 4. Re-analyze: must return 2 candidates, not 1!
+        var completedCandidates = await _engine.ClassifyCandidatesAsync(scanId);
+        Assert.Equal(2, completedCandidates.Count);
+
+        // DB should now cache both candidates
+        var dbCachedAfterCompletion = await _repository.GetCachedAnalysisResultsAsync(scanId);
+        Assert.Equal(2, dbCachedAfterCompletion.Count);
+
+        // 5. InvalidateCache clears the cache
+        _engine.InvalidateCache(scanId);
+    }
+
     public void Dispose()
     {
         try

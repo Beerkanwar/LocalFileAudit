@@ -144,7 +144,7 @@
                                             <ColumnDefinition Width="220" />
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0">
-                                            <TextBlock Text="{Binding StartTimeUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" FontWeight="SemiBold" FontSize="13" />
+                                            <TextBlock Text="{Binding StartTimeUtc, Converter={StaticResource UtcToLocalDateTimeConverter}, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" FontWeight="SemiBold" FontSize="13" />
                                             <TextBlock Text="{Binding ApplicationVersion, StringFormat='{}v{0}'}" Foreground="{StaticResource TextMutedBrush}" FontSize="11" />
                                         </StackPanel>
 

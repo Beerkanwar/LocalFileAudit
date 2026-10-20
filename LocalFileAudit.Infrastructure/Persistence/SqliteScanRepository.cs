@@ -104,6 +104,14 @@ public sealed class SqliteScanRepository : IScanRepository
 
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
+            if (state == ScanState.InProgress)
+            {
+                await using var delCmd = connection.CreateCommand();
+                delCmd.CommandText = "DELETE FROM AnalysisResults WHERE ScanRunId = @Id;";
+                delCmd.Parameters.AddWithValue("@Id", scanRunId.ToString());
+                await delCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             if (state == ScanState.Completed)
             {
                 try
@@ -191,6 +199,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 DELETE FROM Files WHERE ScanRunId = @Id;
                 DELETE FROM Directories WHERE ScanRunId = @Id;
                 DELETE FROM ScanErrors WHERE ScanRunId = @Id;
+                DELETE FROM AnalysisResults WHERE ScanRunId = @Id;
                 DELETE FROM ScanRuns WHERE Id = @Id;
             ";
             cmd.Parameters.AddWithValue("@Id", scanRunId.ToString());
@@ -1159,6 +1168,23 @@ public sealed class SqliteScanRepository : IScanRepository
             }
 
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task DeleteAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM AnalysisResults WHERE ScanRunId = @ScanRunId;";
+            cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {

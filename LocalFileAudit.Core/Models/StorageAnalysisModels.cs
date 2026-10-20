@@ -81,3 +81,48 @@ public sealed class ReportGenerationResult
     public bool IsCompleteScan { get; set; }
     public List<string> GeneratedFiles { get; set; } = new();
 }
+
+/// <summary>
+/// Partitions directory trees into non-overlapping sets suitable for squarified treemaps and storage hotspots.
+/// </summary>
+public static class TreemapPartitionHelper
+{
+    public static IReadOnlyList<DirectorySummary> FilterNonOverlappingDirectories(IEnumerable<DirectorySummary>? directories)
+    {
+        if (directories == null) return Array.Empty<DirectorySummary>();
+
+        var candidates = directories
+            .Where(d => d.RecursiveSizeBytes > 0 || d.DirectSizeBytes > 0)
+            .OrderByDescending(d => d.RecursiveSizeBytes > 0 ? d.RecursiveSizeBytes : d.DirectSizeBytes)
+            .ToList();
+
+        var normalized = candidates
+            .Select(d => d.DirectoryPath.TrimEnd('\\', '/'))
+            .ToList();
+
+        var result = new List<DirectorySummary>();
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            var path = normalized[i];
+            var prefix = path + "\\";
+            bool hasDescendant = false;
+
+            for (int j = 0; j < candidates.Count; j++)
+            {
+                if (i == j) continue;
+                if (normalized[j].StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    hasDescendant = true;
+                    break;
+                }
+            }
+
+            if (!hasDescendant)
+            {
+                result.Add(candidates[i]);
+            }
+        }
+
+        return result;
+    }
+}

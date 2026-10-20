@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.6] - 2026-10-20
+
+### Fixed
+- **Recursive Directory Roll-Up Boundary & Non-Overlapping Treemap Partitioning:**
+  - Displayed `RecursiveSizeBytes` in the Dashboard "Largest Folders" list to ensure nested-only directories show true total storage usage rather than 0 B direct bytes.
+  - Constrained hierarchical roll-up in `StorageAnalysisEngine` to stop strictly at scan roots (`SelectedDrives`) and scanned paths, preventing ancestor folders outside the scan scope (e.g. `D:\` when scanning `D:\Users`) from appearing with partial totals.
+  - Introduced `TreemapPartitionHelper.FilterNonOverlappingDirectories` to feed the Treemap non-overlapping partitions, ensuring parent and child folder byte counts are not double-counted and tooltips accurately reflect non-overlapping storage shares.
+- **PowerShell Script Generation Hardening (cleanName Log Filename Injection):**
+  - Sanitized and escaped `cleanName` in `ArchivePlannerService` using `EscapePowerShellSingleQuotedLiteral`, and updated `SanitizeIdentifier` to strip single quotes (`'`), semicolons (`;`), hashes (`#`), dollar signs (`$`), and backticks (`` ` ``).
+  - Added automated PowerShell AST verification tests (`System.Management.Automation.Language.Parser`) asserting no extra statements or command injections occur even with crafted batch names.
+- **Candidate Analysis Cache Invalidation on In-Progress / Resume / Discard:**
+  - Enforced that persistent database-backed `AnalysisResults` are cached only for completed scans (`isComplete == true`). In-progress scans bypass persistent cache reads and writes.
+  - Implemented `DeleteAnalysisResultsAsync` in `SqliteScanRepository`, automatically purging stale candidate records whenever a scan run is resumed, discarded, or invalidated.
+- **UTC Timestamp Display Consistency Across Views:**
+  - Introduced `UtcToLocalDateTimeConverter` (registered in `App.xaml` and leveraging `UtcDateTimeHelper.ToLocal`), applying consistent local-time formatting across `ScansView`, `InventoryView`, `DuplicateAnalysisView`, and `AiReportsView` to eliminate timezone display offsets on non-UTC machines.
+- **Thread-Safe Archive Estimation & Input Lockout:**
+  - Captured form inputs (`NewSourcePath`, `NewBatchName`, `NewDestinationPath`) into immutable local variables before awaiting the directory estimate in `ArchivePlanViewModel.AddBatchAsync`, preventing race conditions where user edits during estimation could point the batch at an unmeasured folder.
+  - Added `CanEditForm` (`!IsEstimating`) property binding in `ArchivePlanView.xaml` to disable source/destination inputs and the Add button while estimation is in progress.
+- **Documentation Synchronization for AI Loopback Policy:**
+  - Updated `README.md`, `PRIVACY.md`, and `ARCHITECTURE.md` to accurately and consistently reflect that AI loopback enforcement is enabled by default with an optional user-controlled setting for remote/LAN Ollama endpoints.
+- **Cloud Placeholder Detection in Archive Estimation:**
+  - Added `FilesystemScanner.IsCloudPlaceholder` check before skipping `ReparsePoint` items during archive directory estimation, preventing OneDrive and other cloud placeholder files and directories from being mistakenly skipped and undercounted.
+
+---
+
 ## [1.3.5] - 2026-10-20
 
 ### Fixed

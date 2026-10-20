@@ -571,5 +571,67 @@ public sealed class WorkflowV13Tests : IDisposable
         });
     }
 
+    [Fact]
+    public async Task ArchivePlanner_PowerShellInjection_BatchNameWithApostropheSemicolon_ParsedWithoutInjectedStatements()
+    {
+        var planner = new ArchivePlannerService(_env, NullLogger<ArchivePlannerService>.Instance);
+
+        var plan = new ArchivePlan
+        {
+            PlanName = "Injection Plan"
+        };
+        // Adversarial batch name intended to break out of single quotes: ';Get-Date;#
+        var batch = new ArchiveBatch
+        {
+            BatchName = "';Get-Date;#",
+            SourcePath = @"C:\Source",
+            PlannedDestinationPath = @"D:\Backup",
+            Reason = "PowerShell injection test"
+        };
+        plan.Batches.Add(batch);
+
+        var outDir = Path.Combine(_testRoot, "InjectionTestOut");
+        var result = await planner.GenerateArchiveScriptsAsync(plan, outDir);
+
+        var preview = await File.ReadAllTextAsync(result.PreviewScriptPath);
+        var copy = await File.ReadAllTextAsync(result.CopyScriptPath);
+
+        // Parse both generated scripts using PowerShell AST parser
+        var previewAst = System.Management.Automation.Language.Parser.ParseInput(preview, out _, out var previewErrors);
+        Assert.Empty(previewErrors);
+
+        var copyAst = System.Management.Automation.Language.Parser.ParseInput(copy, out _, out var copyErrors);
+        Assert.Empty(copyErrors);
+
+        // Find all commands in the AST
+        var previewCommands = previewAst.FindAll(s => s is System.Management.Automation.Language.CommandAst, true)
+            .Cast<System.Management.Automation.Language.CommandAst>()
+            .Select(c => c.GetCommandName())
+            .ToList();
+
+        var copyCommands = copyAst.FindAll(s => s is System.Management.Automation.Language.CommandAst, true)
+            .Cast<System.Management.Automation.Language.CommandAst>()
+            .Select(c => c.GetCommandName())
+            .ToList();
+
+        // Injected command Get-Date must NOT exist in the parsed AST commands!
+        Assert.DoesNotContain("Get-Date", previewCommands);
+        Assert.DoesNotContain("Get-Date", copyCommands);
+
+        // Only valid robocopy / Write-Host / New-Item / Test-Path / Write-Warning / Join-Path commands
+        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Write-Host", "Test-Path", "New-Item", "Out-Null", "robocopy", "Write-Warning", "Join-Path"
+        };
+        foreach (var cmd in previewCommands)
+        {
+            Assert.Contains(cmd, allowed);
+        }
+        foreach (var cmd in copyCommands)
+        {
+            Assert.Contains(cmd, allowed);
+        }
+    }
+
     #endregion
 }

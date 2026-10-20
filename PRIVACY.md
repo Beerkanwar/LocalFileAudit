@@ -23,7 +23,7 @@ LocalFileAudit adheres strictly to data minimization:
 | **File Paths & Names** | ✅ Yes (during scan) | ❌ Never (local only) | ✅ Yes (`inventory.db`) |
 | **File Sizes & Dates** | ✅ Yes (during scan) | ❌ Never (local only) | ✅ Yes (`inventory.db`) |
 | **Cryptographic Hashes** | ✅ Yes (on duplicate check)| ❌ Never (local only) | ✅ Yes (`inventory.db`) |
-| **AI Prompt Metadata** | ✅ Candidate summary | ✅ Only to local Ollama (`127.0.0.1`)| ✅ Yes (`AI-Review.md`) |
+| **AI Prompt Metadata** | ✅ Candidate summary | ✅ Only to local Ollama (`127.0.0.1`) by default (or user-configured private LAN Ollama server)| ✅ Yes (`AI-Review.md`) |
 
 When interacting with the local Ollama instance:
 - **File contents are NEVER transmitted.**

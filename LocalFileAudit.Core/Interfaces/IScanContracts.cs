@@ -51,6 +51,7 @@ public interface IScanRepository
     Task DeleteChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, CancellationToken cancellationToken = default);
+    Task DeleteAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

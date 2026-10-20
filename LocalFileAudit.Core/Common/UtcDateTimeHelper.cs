@@ -27,4 +27,17 @@ public static class UtcDateTimeHelper
         var utc = dateTime.Kind == DateTimeKind.Utc ? dateTime : dateTime.ToUniversalTime();
         return utc.ToString("o", CultureInfo.InvariantCulture);
     }
+
+    public static DateTime ToLocal(DateTime dateTime)
+    {
+        return dateTime.Kind == DateTimeKind.Utc
+            ? dateTime.ToLocalTime()
+            : DateTime.SpecifyKind(dateTime, DateTimeKind.Utc).ToLocalTime();
+    }
+
+    public static DateTime? ToLocalNullable(DateTime? dateTime)
+    {
+        if (!dateTime.HasValue) return null;
+        return ToLocal(dateTime.Value);
+    }
 }

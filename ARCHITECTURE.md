@@ -91,7 +91,7 @@ To maximize speed on large drives with millions of files:
 - **HTML Security:** All dynamic values in `Summary.html` are strictly escaped via `WebUtility.HtmlEncode`.
 
 ### 3.6 Local AI Service (`OllamaClient` & `AiAnalysisService`)
-- **Network Isolation:** Validates `uri.IsLoopback` and rejects any remote hostname or non-loopback IP (`http://localhost` and `http://127.0.0.1` only).
+- **Network Isolation:** Validates `uri.IsLoopback` by default and rejects any remote hostname or non-loopback IP (`http://localhost` and `http://127.0.0.1` only). Users operating a dedicated, self-hosted Ollama server on an isolated private LAN can explicitly opt out via configuration (`RequireLocalEndpoint = false`), which triggers UI warnings and audit logging.
 - **Prompt Injection Defense:** File paths and names from user disks are framed as untrusted input data blocks. AI instructions state that metadata cannot execute commands.
 - **Candidate Reconciliation:** AI recommendations are matched against real database candidate IDs. Any recommendation referencing a non-existent candidate ID is rejected as a hallucination.
 

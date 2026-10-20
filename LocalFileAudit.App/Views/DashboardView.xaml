@@ -204,7 +204,7 @@
                                                 <ColumnDefinition Width="100" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding DirectoryPath}" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding DirectoryPath}" VerticalAlignment="Center" />
-                                            <TextBlock Grid.Column="1" Text="{Binding DirectSizeBytes, StringFormat='{}{0:N0} B'}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentHoverBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" />
+                                            <TextBlock Grid.Column="1" Text="{Binding RecursiveSizeBytes, StringFormat='{}{0:N0} B'}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource AccentHoverBrush}" HorizontalAlignment="Right" VerticalAlignment="Center" />
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

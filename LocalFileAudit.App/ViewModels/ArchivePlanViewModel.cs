@@ -48,8 +48,10 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(AddBatchCommand))]
+    [NotifyPropertyChangedFor(nameof(CanEditForm))]
     private bool _isEstimating;
 
+    public bool CanEditForm => !IsEstimating;
     private bool CanAddBatch => !IsEstimating;
 
     private CancellationTokenSource? _estimationCts;
@@ -129,7 +131,12 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanAddBatch))]
     public async Task AddBatchAsync()
     {
+        // 1. Capture all form values into locals upfront before validation and asynchronous estimation
         var trimmedName = NewBatchName?.Trim() ?? string.Empty;
+        var sourcePath = NewSourcePath?.Trim() ?? string.Empty;
+        var destPath = NewDestinationPath?.Trim() ?? string.Empty;
+        var reason = string.IsNullOrWhiteSpace(NewReason) ? "Cold storage offload" : NewReason.Trim();
+
         if (string.IsNullOrWhiteSpace(trimmedName))
         {
             MessageBox.Show("Please specify a descriptive name for this archive batch.", "Archive Planner", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -142,13 +149,13 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(NewSourcePath) || !Directory.Exists(NewSourcePath))
+        if (string.IsNullOrWhiteSpace(sourcePath) || !Directory.Exists(sourcePath))
         {
             MessageBox.Show("Please specify a valid, existing source directory to archive.", "Archive Planner", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(NewDestinationPath))
+        if (string.IsNullOrWhiteSpace(destPath))
         {
             MessageBox.Show("Please specify a planned destination directory (e.g. E:\\Archive).", "Archive Planner", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -164,7 +171,7 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         {
             StatusMessage = "Estimating batch size (skipping junctions)...";
             var progress = new Progress<string>(msg => StatusMessage = msg);
-            estimation = await _plannerService.EstimateDirectoryAsync(NewSourcePath, progress, _estimationCts.Token);
+            estimation = await _plannerService.EstimateDirectoryAsync(sourcePath, progress, _estimationCts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -173,7 +180,7 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not completely evaluate source directory size for {Path}", NewSourcePath);
+            _logger.LogWarning(ex, "Could not completely evaluate source directory size for {Path}", sourcePath);
             estimation = new DirectoryEstimationResult { TotalBytes = 0, FileCount = 0, IsPartial = true };
         }
         finally
@@ -199,7 +206,7 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         }
 
         // Space warning check
-        var space = _plannerService.GetDestinationFreeSpace(NewDestinationPath);
+        var space = _plannerService.GetDestinationFreeSpace(destPath);
         if (space.HasValue && space.Value.FreeBytes < estimatedBytes)
         {
             var neededGb = estimatedBytes / (1024.0 * 1024.0 * 1024.0);
@@ -216,9 +223,9 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         var batch = new ArchiveBatch
         {
             BatchName = trimmedName,
-            SourcePath = NewSourcePath.Trim(),
-            PlannedDestinationPath = NewDestinationPath.Trim(),
-            Reason = string.IsNullOrWhiteSpace(NewReason) ? "Cold storage offload" : NewReason.Trim(),
+            SourcePath = sourcePath,
+            PlannedDestinationPath = destPath,
+            Reason = reason,
             EstimatedSizeBytes = estimatedBytes,
             EstimatedFileCount = fileCount,
             IsVerified = false,

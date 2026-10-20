@@ -308,7 +308,7 @@
                                                 <StackPanel>
                                                     <Grid Margin="0,0,0,4">
                                                         <TextBlock Text="{Binding Sender, StringFormat='{}• {0}'}" FontWeight="Bold" FontSize="11" Foreground="{StaticResource AccentHoverBrush}" />
-                                                        <TextBlock Text="{Binding CreatedAtUtc, StringFormat='{}{0:HH:mm}'}" HorizontalAlignment="Right" FontSize="10" Foreground="{StaticResource TextMutedBrush}" />
+                                                        <TextBlock Text="{Binding CreatedAtUtc, Converter={StaticResource UtcToLocalDateTimeConverter}, StringFormat='{}{0:HH:mm}'}" HorizontalAlignment="Right" FontSize="10" Foreground="{StaticResource TextMutedBrush}" />
                                                     </Grid>
                                                     <TextBlock Text="{Binding Message}" FontSize="12" TextWrapping="Wrap" LineHeight="17" Foreground="{StaticResource TextPrimaryBrush}" />
                                                 </StackPanel>
@@ -367,7 +367,7 @@
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
 
-                                        <TextBlock Text="{Binding GeneratedAtUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding GeneratedAtUtc, Converter={StaticResource UtcToLocalDateTimeConverter}, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="1" Text="{Binding ModelName}" FontSize="12" Foreground="{StaticResource AccentHoverBrush}" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="2" Text="{Binding Status}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center" />
                                         <TextBlock Grid.Column="3" Text="{Binding ReportPath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0" />

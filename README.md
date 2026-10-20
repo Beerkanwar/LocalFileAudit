@@ -54,7 +54,7 @@ Built with C# and .NET 9 (WPF), LocalFileAudit provides deep visibility into you
 - **📄 Atomic Report Generation (Offline & Deterministic):**
   - Generates audit artifacts atomically via staging directories (`Summary.md`, `Summary.html`, `ExtensionSummary.csv`, `DirectorySummary.csv`, `ReviewCandidates.csv`, `ScanErrors.csv`, `Inventory.csv`, `Manifest.json`).
 - **🤖 Local AI Decision Support & Follow-up Chat (Ollama):**
-  - Offline Ollama integration over local loopback (`http://127.0.0.1:11434`) with strict loopback IP enforcement.
+  - Offline Ollama integration over local loopback (`http://127.0.0.1:11434`) with loopback IP enforcement enabled by default (optional toggle for dedicated private LAN Ollama instances with UI warnings and audit logging).
   - **Interactive Follow-up Chat:** Scoped conversational analysis per scan run grounded in candidate metadata, with persisted chat history and one-click "Ask AI" context links from inventory rows.
   - Exportable `AI-Review.md` narrative report and one-click `AI-Review-Table.csv` / `.md`.
   - System prompts strictly advisory-only with zero mutation authorities.
@@ -160,7 +160,7 @@ LocalFileAudit works completely offline without AI. If you wish to enable the op
 | :--- | :--- |
 | **No File Deletion** | Zero `File.Delete` or destructive APIs in scanning/analysis modules. |
 | **No File Modification** | File streams are opened strictly with `FileAccess.Read` and `FileShare.Read`. |
-| **No Remote Leakage** | `OllamaClient` enforces `uri.IsLoopback`; external URLs throw `InvalidOperationException`. |
+| **No Remote Leakage** | `OllamaClient` enforces `uri.IsLoopback` by default; external URLs throw `InvalidOperationException` unless the user explicitly opts out in Settings for private LAN Ollama servers. |
 | **Crash Resilience** | SQLite WAL mode checkpoints committed batches; `PRAGMA integrity_check` verified on restart. |
 | **Prompt Injection Defense** | File metadata is passed as strictly bounded JSON data blocks with defensive prompts. |
 | **Path Privacy** | Internal rolling file logs redact user directory structures in log messages. |

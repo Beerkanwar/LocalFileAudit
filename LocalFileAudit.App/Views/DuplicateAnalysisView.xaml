@@ -214,7 +214,7 @@
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Text="{Binding FileName}" FontWeight="Bold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
-                                            <TextBlock Grid.Column="1" Text="{Binding LastWriteTimeUtc, StringFormat='{}Modified: {0:yyyy-MM-dd HH:mm}'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding LastWriteTimeUtc, Converter={StaticResource UtcToLocalDateTimeConverter}, StringFormat='{}Modified: {0:yyyy-MM-dd HH:mm}'}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" />
                                         </Grid>
                                         <StackPanel Grid.Row="1" Margin="0,4,0,0">
                                             <TextBlock Text="{Binding FullPath}" FontSize="11" Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FullPath}" />

@@ -46,6 +46,17 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         if (scanRunId.HasValue)
         {
             _summaryCache.TryRemove(scanRunId.Value, out _);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await _repository.DeleteAnalysisResultsAsync(scanRunId.Value).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Failed to delete AnalysisResults for scan {ScanRunId}", scanRunId.Value);
+                }
+            });
         }
         else
         {
@@ -68,8 +79,12 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
         var topExtensions = await GetExtensionStatisticsAsync(scanRunId, 25, cancellationToken).ConfigureAwait(false);
         var largestFiles = await GetLargestFilesAsync(scanRunId, 50, cancellationToken).ConfigureAwait(false);
-        var largestDirectories = await GetLargestDirectoriesAsync(scanRunId, 30, cancellationToken).ConfigureAwait(false);
-        var candidates = await ClassifyCandidatesAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+        var scanRoots = run.SelectedDrives?.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(r => NormalizeDirPath(r.Trim()))
+            .Where(r => !string.IsNullOrEmpty(r))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var largestDirectories = await GetLargestDirectoriesAsync(scanRunId, 30, scanRoots, cancellationToken).ConfigureAwait(false);
+        var candidates = await ClassifyCandidatesAsync(scanRunId, run.Status, cancellationToken).ConfigureAwait(false);
 
         long cloudCount = 0;
         long cloudBytes = 0;
@@ -198,20 +213,46 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         return list;
     }
 
-    public async Task<IReadOnlyList<DirectorySummary>> GetLargestDirectoriesAsync(Guid scanRunId, int top = 50, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<DirectorySummary>> GetLargestDirectoriesAsync(Guid scanRunId, int top = 50, CancellationToken cancellationToken = default)
+        => GetLargestDirectoriesAsync(scanRunId, top, null, cancellationToken);
+
+    public async Task<IReadOnlyList<DirectorySummary>> GetLargestDirectoriesAsync(Guid scanRunId, int top, IReadOnlySet<string>? scanRoots, CancellationToken cancellationToken = default)
     {
         await using var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
-        // 1. Determine if the scan run is complete
+        // 1. Determine if the scan run is complete and resolve scan root boundaries
         var isComplete = false;
+        var rootSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (scanRoots != null)
+        {
+            foreach (var r in scanRoots)
+            {
+                var nr = NormalizeDirPath(r);
+                if (!string.IsNullOrEmpty(nr)) rootSet.Add(nr);
+            }
+        }
+
         await using (var statusCmd = conn.CreateCommand())
         {
-            statusCmd.CommandText = "SELECT Status FROM ScanRuns WHERE Id = @ScanRunId LIMIT 1;";
+            statusCmd.CommandText = "SELECT Status, SelectedDrives FROM ScanRuns WHERE Id = @ScanRunId LIMIT 1;";
             statusCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
-            var statusObj = await statusCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            if (statusObj is string statusStr && Enum.TryParse<ScanState>(statusStr, out var state))
+            await using var reader = await statusCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                isComplete = state == ScanState.Completed;
+                if (!reader.IsDBNull(0) && Enum.TryParse<ScanState>(reader.GetString(0), out var state))
+                {
+                    isComplete = state == ScanState.Completed;
+                }
+                if (!reader.IsDBNull(1))
+                {
+                    var drivesStr = reader.GetString(1);
+                    var parts = drivesStr.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                    foreach (var p in parts)
+                    {
+                        var norm = NormalizeDirPath(p.Trim());
+                        if (!string.IsNullOrEmpty(norm)) rootSet.Add(norm);
+                    }
+                }
             }
         }
 
@@ -256,7 +297,18 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             }
         }
 
+        // Known scanned paths: explicitly inventoried directories, plus direct file parent paths
+        var knownPaths = dirMap.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, _, _) in directAggregates)
+        {
+            if (!string.IsNullOrEmpty(path))
+            {
+                knownPaths.Add(path);
+            }
+        }
+
         // 3. Roll up direct statistics into recursive totals across ancestor hierarchy
+        //    Stop propagation when we reach a scan root or a path not in the scanned set
         foreach (var (path, files, bytes) in directAggregates)
         {
             if (!dirMap.TryGetValue(path, out var selfEntry))
@@ -270,17 +322,24 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             selfEntry.RecursiveFileCount += files;
             selfEntry.RecursiveSizeBytes += bytes;
 
-            // Propagate up to all parent directories
+            // Propagate up to ancestor directories that exist in the scanned set
             var current = path;
             while (true)
             {
+                // Don't propagate beyond a scan root
+                if (rootSet.Contains(current))
+                    break;
+
                 var parent = Path.GetDirectoryName(current);
                 if (string.IsNullOrEmpty(parent) || parent.Equals(current, StringComparison.OrdinalIgnoreCase))
-                {
                     break;
-                }
 
                 var normalizedParent = NormalizeDirPath(parent);
+
+                // Only propagate into directories that were actually scanned — never create above-root synthetic entries
+                if (!knownPaths.Contains(normalizedParent))
+                    break;
+
                 if (!dirMap.TryGetValue(normalizedParent, out var parentEntry))
                 {
                     parentEntry = new DirAggregates { DirectoryPath = normalizedParent };
@@ -294,7 +353,9 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         }
 
         // 4. Return top directories ordered by RecursiveSizeBytes descending
+        //    Only include directories that were actually in the scanned set (never above-root synthetics)
         return dirMap.Values
+            .Where(d => knownPaths.Contains(d.DirectoryPath))
             .OrderByDescending(d => d.RecursiveSizeBytes)
             .ThenByDescending(d => d.DirectSizeBytes)
             .Take(top)
@@ -332,14 +393,43 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
     public async Task<IReadOnlyList<CandidateClassification>> ClassifyCandidatesAsync(Guid scanRunId, CancellationToken cancellationToken = default)
     {
-        // 1. Check if AnalysisResults table already contains cached classifications for this scan run
-        var cached = await _repository.GetCachedAnalysisResultsAsync(scanRunId, cancellationToken).ConfigureAwait(false);
-        if (cached.Count > 0)
+        // 1. Determine if the scan run is complete
+        var isComplete = false;
+        await using (var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
+        await using (var statusCmd = conn.CreateCommand())
         {
-            return cached;
+            statusCmd.CommandText = "SELECT Status FROM ScanRuns WHERE Id = @ScanRunId LIMIT 1;";
+            statusCmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+            var statusObj = await statusCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (statusObj is string statusStr && Enum.TryParse<ScanState>(statusStr, out var state))
+            {
+                isComplete = state == ScanState.Completed;
+            }
         }
 
-        // 2. Cache miss: evaluate rules from Files
+        return await ClassifyCandidatesInternalAsync(scanRunId, isComplete, cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<IReadOnlyList<CandidateClassification>> ClassifyCandidatesAsync(Guid scanRunId, ScanState scanState, CancellationToken cancellationToken = default)
+    {
+        return ClassifyCandidatesInternalAsync(scanRunId, scanState == ScanState.Completed, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<CandidateClassification>> ClassifyCandidatesInternalAsync(Guid scanRunId, bool isComplete, CancellationToken cancellationToken)
+    {
+        // Only serve and persist the DB-backed analysis cache for completed scans.
+        // An in-progress scan can have incomplete data; returning stale cached results would
+        // suppress new candidates added since the cache was populated.
+        if (isComplete)
+        {
+            var cached = await _repository.GetCachedAnalysisResultsAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+            if (cached.Count > 0)
+            {
+                return cached;
+            }
+        }
+
+        // 2. Cache miss or in-progress scan: evaluate rules from Files
         var candidates = new List<CandidateClassification>();
         var config = _configurationService.Current;
         await using (var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
@@ -374,8 +464,8 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
         var sorted = candidates.OrderBy(c => c.Priority).ThenByDescending(c => c.SizeBytes).ToList();
 
-        // 3. Persist classified results to AnalysisResults table via repository
-        if (sorted.Count > 0)
+        // 3. Persist classified results to AnalysisResults table only for completed scans
+        if (sorted.Count > 0 && isComplete)
         {
             try
             {

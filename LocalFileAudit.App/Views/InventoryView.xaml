@@ -206,7 +206,7 @@
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
 
-                    <DataGridTextColumn Header="LAST MODIFIED" Binding="{Binding LastWriteTimeUtc, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" Width="140" />
+                    <DataGridTextColumn Header="LAST MODIFIED" Binding="{Binding LastWriteTimeUtc, Converter={StaticResource UtcToLocalDateTimeConverter}, StringFormat='{}{0:yyyy-MM-dd HH:mm}'}" Width="140" />
 
                     <DataGridTemplateColumn Header="CONTAINING DIRECTORY" Width="*">
                         <DataGridTemplateColumn.CellTemplate>

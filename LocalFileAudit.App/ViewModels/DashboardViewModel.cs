@@ -113,7 +113,8 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 }
 
                 TreemapDirectories.Clear();
-                foreach (var dir in metrics.LargestDirectories.Take(60))
+                var nonOverlapping = FilterNonOverlappingTreemapDirectories(metrics.LargestDirectories);
+                foreach (var dir in nonOverlapping.Take(60))
                 {
                     TreemapDirectories.Add(dir);
                 }
@@ -184,4 +185,7 @@ public sealed partial class DashboardViewModel : ViewModelBase
     {
         OnNavigateRequested?.Invoke(viewName);
     }
+
+    public static IReadOnlyList<DirectorySummary> FilterNonOverlappingTreemapDirectories(IEnumerable<DirectorySummary>? directories)
+        => TreemapPartitionHelper.FilterNonOverlappingDirectories(directories);
 }

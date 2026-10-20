@@ -65,7 +65,7 @@
                 <TextBlock Text="ADD NEW ARCHIVE BATCH" FontSize="11" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,10" />
 
                 <!-- Row 1: Batch Name, Source Path, Destination Path -->
-                <Grid Grid.Row="1" Margin="0,0,0,10">
+                <Grid Grid.Row="1" Margin="0,0,0,10" IsEnabled="{Binding CanEditForm}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="1.5*" />
                         <ColumnDefinition Width="2.5*" />
@@ -106,7 +106,7 @@
                         <TextBlock Text="REASON / RETENTION NOTES" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,3" />
                         <TextBox Text="{Binding NewReason, UpdateSourceTrigger=PropertyChanged}" Height="32" VerticalContentAlignment="Center" Padding="8,0"
                                  Background="{StaticResource CardElevatedBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
-                                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" />
+                                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" IsEnabled="{Binding CanEditForm}" />
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,10,0">
@@ -116,7 +116,7 @@
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Bottom">
                         <Button Style="{StaticResource PrimaryButtonStyle}" Content="➕ Add to Plan"
-                                Command="{Binding AddBatchCommand}" Height="32" Padding="18,0" />
+                                Command="{Binding AddBatchCommand}" Height="32" Padding="18,0" IsEnabled="{Binding CanEditForm}" />
                         <Button Style="{StaticResource SecondaryButtonStyle}" Content="✕ Cancel"
                                 Command="{Binding CancelEstimationCommand}" Height="32" Padding="14,0" Margin="8,0,0,0"
                                 Visibility="{Binding IsEstimating, Converter={StaticResource BooleanToVisibilityConverter}}" />

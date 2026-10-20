@@ -91,15 +91,10 @@ public sealed class TreemapControl : Canvas
         if (ActualWidth <= 10 || ActualHeight <= 10) return;
         if (Directories == null) return;
 
-        var items = Directories
-            .Where(d => d.DirectSizeBytes > 0 || d.RecursiveSizeBytes > 0)
-            .OrderByDescending(d => Math.Max(d.RecursiveSizeBytes, d.DirectSizeBytes))
-            .Take(60)
-            .ToList();
-
+        var items = FilterNonOverlapping(Directories).Take(60).ToList();
         if (items.Count == 0) return;
 
-        var total = TotalSizeBytes > 0 ? TotalSizeBytes : items.Sum(i => Math.Max(i.RecursiveSizeBytes, i.DirectSizeBytes));
+        var total = TotalSizeBytes > 0 ? TotalSizeBytes : items.Sum(i => i.RecursiveSizeBytes > 0 ? i.RecursiveSizeBytes : i.DirectSizeBytes);
         if (total <= 0) return;
 
         var nodes = new List<TreemapNode>();
@@ -107,8 +102,8 @@ public sealed class TreemapControl : Canvas
 
         foreach (var item in items)
         {
-            var size = Math.Max(item.RecursiveSizeBytes, item.DirectSizeBytes);
-            var pct = (double)size / total * 100.0;
+            var size = item.RecursiveSizeBytes > 0 ? item.RecursiveSizeBytes : item.DirectSizeBytes;
+            var pct = Math.Min(100.0, (double)size / total * 100.0);
             var name = Path.GetFileName(item.DirectoryPath.TrimEnd('\\', '/'));
             if (string.IsNullOrEmpty(name)) name = item.DirectoryPath;
 
@@ -364,4 +359,7 @@ public sealed class TreemapControl : Canvas
             return $"{bytes / 1024.0:F0} KB";
         return $"{bytes} B";
     }
+
+    public static List<DirectorySummary> FilterNonOverlapping(IEnumerable<DirectorySummary>? source)
+        => TreemapPartitionHelper.FilterNonOverlappingDirectories(source).ToList();
 }
