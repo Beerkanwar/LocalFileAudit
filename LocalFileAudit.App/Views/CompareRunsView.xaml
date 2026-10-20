@@ -26,7 +26,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel>
-                <TextBlock Text="Run Comparison &amp; Change Tracking" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+                <TextBlock Text="Run Comparison" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
                 <TextBlock Text="Diff filesystem state across recurring scans to identify New, Deleted, and Modified files, as well as net storage deltas."
                            Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" />
             </StackPanel>

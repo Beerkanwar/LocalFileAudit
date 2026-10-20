@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.3] - 2026-10-20
+
+### Fixed
+- **UI Responsiveness & Analysis Background Threading (P0):** Offloaded synchronous SQLite analysis queries (`AnalyzeScanAsync`) to background worker threads via `Task.Run` in `StorageAnalysisViewModel` and `DashboardViewModel`, and made storage analysis initialization lazy (`EnsureInitializedAsync`) to guarantee stutter-free UI interactions.
+- **Analysis Results Caching (P0):** Activated the previously unused `AnalysisResults` SQLite table to cache review candidates per scan run, paired with an in-memory `StorageMetricsSummary` cache and automatic cache invalidation (`InvalidateCache`) when new scans complete.
+- **Current Folder Text Reset (P1):** Ensured `CurrentDirectory` in `ScansViewModel` cleanly resets to `"Ready"` upon scan completion, cancellation, and resume termination.
+- **Async Navigation Callback Safety (P1):** Replaced risky `async void` / `Action<Guid>` navigation callbacks with `Func<Guid, Task>` accompanied by robust exception handling and logging to prevent application crashes during view transitions.
+- **Navigation Tab Active Highlighting (P1):** Implemented `NavTabStyle` using `RadioButton` navigation controls with active-state tracking, glowing accent border indicators, and contrasting background highlights for the selected tab.
+- **Inaccessible Path Scan Error Reporting (P2):** Expanded scan completion status and desktop notification toasts to explicitly report the number of inaccessible paths and point directly to `ScanErrors.csv`.
+- **Documentation & User Guide Synchronization (P2):**
+  - Updated `USER_GUIDE.md` navigation headers, button labels ("▶ Start File Inventory Scan"), and safety documentation to match the current UI.
+  - Corrected `README.md:153` tab reference from "AI Insights" to "AI Reports".
+- **ViewModel Title Standardization (P3):** Standardized titles across ViewModels and page headers to match sidebar navigation labels ("Run Comparison", "Archive Plan", "Archive Verifier").
+- **Safety Mode Terminology Consistency (P3):** Standardized safety wording throughout the UI to consistent read-only phrasing ("Strict Read-Only Mode Active", "Read-Only Protected (Zero Mutations)").
+- **Database Overhead & Checkpoint Optimization (P3):** Dropped redundant duplicate index `idx_files_scan_path` (already indexed by table uniqueness constraint), added `idx_files_scan_cloud`, and introduced automatic `PRAGMA wal_checkpoint(TRUNCATE)` and `PRAGMA optimize` on startup and scan discards to keep database and WAL sizes compact.
+- **Analysis View UI Virtualization (P3):** Enabled UI virtualization with item container recycling and smooth pixel scrolling for `ReviewCandidates` and `LargestFiles` in `StorageAnalysisView.xaml` to eliminate rendering lag on large file collections.
+
+---
+
 ## [1.3.2] - 2026-10-20
 
 ### Fixed

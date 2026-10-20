@@ -144,10 +144,11 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             );
 
             -- Indexes for high performance querying
-            CREATE INDEX IF NOT EXISTS idx_files_scan_path ON Files(ScanRunId, FullPath);
+            DROP INDEX IF EXISTS idx_files_scan_path; -- UNIQUE(ScanRunId, FullPath) already provides this index
             CREATE INDEX IF NOT EXISTS idx_files_scan_parent ON Files(ScanRunId, ParentPath);
             CREATE INDEX IF NOT EXISTS idx_files_scan_ext ON Files(ScanRunId, Extension);
             CREATE INDEX IF NOT EXISTS idx_files_scan_size ON Files(ScanRunId, SizeBytes);
+            CREATE INDEX IF NOT EXISTS idx_files_scan_cloud ON Files(ScanRunId, MetadataStatus);
             CREATE INDEX IF NOT EXISTS idx_dirs_scan_path ON Directories(ScanRunId, Path);
             CREATE INDEX IF NOT EXISTS idx_dirs_scan_status ON Directories(ScanRunId, Status);
             CREATE INDEX IF NOT EXISTS idx_errors_scan ON ScanErrors(ScanRunId);
@@ -160,6 +161,16 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
         cmd.CommandText = ddl;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Database schema and indexes verified.");
+        // Checkpoint WAL frames into main DB and update query planner statistics
+        await using (var cpCmd = connection.CreateCommand())
+        {
+            cpCmd.CommandText = @"
+                PRAGMA wal_checkpoint(TRUNCATE);
+                PRAGMA optimize;
+            ";
+            await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        _logger.LogInformation("Database schema, indexes, and WAL checkpoint verified.");
     }
 }

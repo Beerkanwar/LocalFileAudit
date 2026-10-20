@@ -98,6 +98,20 @@ public sealed class SqliteScanRepository : IScanRepository
             cmd.Parameters.AddWithValue("@ErrorCount", errorCount);
 
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            if (state == ScanState.Completed)
+            {
+                try
+                {
+                    await using var cpCmd = connection.CreateCommand();
+                    cpCmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
+                    await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Passive checkpoint after scan completion skipped.");
+                }
+            }
         }
         finally
         {
@@ -178,6 +192,18 @@ public sealed class SqliteScanRepository : IScanRepository
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                await using var cpCmd = connection.CreateCommand();
+                cpCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "WAL checkpoint after discard skipped.");
+            }
+
             _logger.LogInformation("Discarded scan run {ScanRunId} from local database.", scanRunId);
         }
         finally

@@ -21,7 +21,7 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     private CancellationTokenSource? _aiCts;
     private AiAnalysisResponse? _lastResponse;
 
-    public Action<long, Guid?>? OnNavigateToInventoryWithCandidate { get; set; }
+    public Func<long, Guid?, Task>? OnNavigateToInventoryWithCandidate { get; set; }
 
     [ObservableProperty]
     private bool _isAiEnabled;
@@ -311,9 +311,19 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    public void InspectCandidate(long candidateId)
+    public async Task InspectCandidateAsync(long candidateId)
     {
-        OnNavigateToInventoryWithCandidate?.Invoke(candidateId, SelectedScan?.Id);
+        if (OnNavigateToInventoryWithCandidate != null)
+        {
+            try
+            {
+                await OnNavigateToInventoryWithCandidate(candidateId, SelectedScan?.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed navigating to inventory with candidate {CandidateId}", candidateId);
+            }
+        }
     }
 
     [RelayCommand]

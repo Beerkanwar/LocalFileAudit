@@ -33,12 +33,12 @@ The left sidebar provides access to all major features:
 3. Configure scan options:
    - **Low-Impact Mode (Recommended for background scanning):** Introduces micro-delays between directory reads to keep CPU and disk usage low.
    - **Follow Reparse Points:** Leave unchecked to safely skip NTFS junctions and symbolic links to prevent circular loops. Cloud placeholders (OneDrive/Dropbox) are recorded without triggering forced local hydration.
-4. Click **▶ Start Scan**.
-5. During the scan, real-time metrics update smoothly. When complete, a desktop notification toast and audio chime alert you.
+4. Click **▶ Start File Inventory Scan**.
+5. During the scan, real-time metrics update smoothly. When complete, a desktop notification toast and audio chime alert you. If any paths were skipped due to permission locks or access constraints, the inaccessible path count is reported with an export to `ScanErrors.csv`.
 
 ---
 
-## 3. Exploring Dashboard & Squarified Treemap
+## 3. Exploring Dashboard & Storage Treemap
 
 The **Dashboard** gives you immediate visual insights:
 - **KPI Cards:** Volume capacity, total logical size, total file count, and cloud placeholder counts.
@@ -81,7 +81,7 @@ Navigate to **Run Comparison**:
 
 ---
 
-## 7. Archive Batch Planner & Script Generation
+## 7. Archive Plan & Script Generation
 
 Navigate to **Archive Plan**:
 1. Click **+ Add Archive Batch**: specify batch name, source directory, planned external destination path (e.g., USB drive `E:\Archive`), and reason.
@@ -118,9 +118,10 @@ Navigate to **AI Reports**:
 
 ---
 
-## 10. Database Backups & Settings
+## 10. Database Backups, Safety Invariants & Settings
 
 In **Settings**:
+- **Safety Invariants:** Review permanent, hardcoded read-only guarantees (automatic deletion, move, and copy are permanently disabled).
 - **Ollama Settings:** Configure model name, timeout (seconds), and maximum request payload limits.
 - **Database Backup:** Click **📦 Backup Database (Online Snapshot)** to create a clean, consistent snapshot of your SQLite inventory using `VACUUM INTO`.
 - **Open Data Directories:** Quick shortcuts to open the database, logs, and reports directories in Windows Explorer.

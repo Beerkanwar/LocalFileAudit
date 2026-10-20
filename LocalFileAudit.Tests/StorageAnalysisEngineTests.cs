@@ -135,6 +135,45 @@ public class StorageAnalysisEngineTests : IDisposable
         Assert.Equal(0, summary.VolumeFreeBytes);
     }
 
+    [Fact]
+    public async Task ClassifyCandidates_CachesResultsInAnalysisResultsTable()
+    {
+        var scanId = Guid.NewGuid();
+        await _repository.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.Completed,
+            SelectedDrives = @"D:\"
+        });
+
+        // Add a temporary file candidate: extension .tmp, age > 180 days, large size
+        var files = new List<FileRecord>
+        {
+            new() { ScanRunId = scanId, FullPath = @"D:\temp\cache.tmp", ParentPath = @"D:\temp", FileName = "cache.tmp", Extension = ".tmp", SizeBytes = 1_000_000_000, LastWriteTimeUtc = DateTime.UtcNow.AddDays(-200) }
+        };
+        await _repository.InsertFileBatchAsync(files);
+
+        // First run computes and caches to AnalysisResults
+        var candidates1 = await _engine.ClassifyCandidatesAsync(scanId);
+        Assert.Single(candidates1);
+        Assert.Equal("cache.tmp", candidates1[0].FileName);
+
+        // Second run reads from SQLite AnalysisResults cache
+        var candidates2 = await _engine.ClassifyCandidatesAsync(scanId);
+        Assert.Single(candidates2);
+        Assert.Equal(candidates1[0].FullPath, candidates2[0].FullPath);
+        Assert.Equal(candidates1[0].Category, candidates2[0].Category);
+
+        // InvalidateCache clears the memory cache
+        _engine.InvalidateCache(scanId);
+
+        // Third run still reads persisted AnalysisResults from DB
+        var candidates3 = await _engine.ClassifyCandidatesAsync(scanId);
+        Assert.Single(candidates3);
+        Assert.Equal(candidates1[0].FullPath, candidates3[0].FullPath);
+        Assert.Equal(candidates1[0].Category, candidates3[0].Category);
+    }
+
     public void Dispose()
     {
         try

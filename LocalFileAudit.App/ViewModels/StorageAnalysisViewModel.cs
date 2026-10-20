@@ -64,8 +64,15 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         Title = "Storage Analysis";
+    }
 
-        _ = InitializeAsync();
+    private bool _isInitialized;
+
+    public async Task EnsureInitializedAsync()
+    {
+        if (_isInitialized) return;
+        _isInitialized = true;
+        await InitializeAsync();
     }
 
     public async Task InitializeAsync()
@@ -124,7 +131,7 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         try
         {
             StatusMessage = "Analyzing storage metrics from SQLite...";
-            var summary = await _analysisEngine.AnalyzeScanAsync(scanRunId);
+            var summary = await Task.Run(() => _analysisEngine.AnalyzeScanAsync(scanRunId));
 
             TotalStorageText = $"{summary.TotalLogicalSizeBytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
             TotalFilesText = $"{summary.TotalFiles:N0} files";

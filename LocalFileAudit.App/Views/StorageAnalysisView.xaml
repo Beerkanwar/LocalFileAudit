@@ -120,10 +120,36 @@
                     <TextBlock Text="Notice: The application never mutates or deletes files. Review candidates indicate items that warrant manual verification."
                                Foreground="{StaticResource TextSecondaryBrush}" FontSize="12" Margin="0,0,0,14" />
 
-                    <ItemsControl ItemsSource="{Binding ReviewCandidates}">
-                        <ItemsControl.ItemTemplate>
+                    <ListView ItemsSource="{Binding ReviewCandidates}"
+                              MaxHeight="440"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.CanContentScroll="True"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              VirtualizingPanel.ScrollUnit="Pixel">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,3" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Focusable" Value="False" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListViewItem">
+                                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12" Margin="0,4">
+                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="6" Padding="12">
                                     <Grid>
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
@@ -148,8 +174,8 @@
                                     </Grid>
                                 </Border>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                        </ListView.ItemTemplate>
+                    </ListView>
                 </StackPanel>
             </Border>
 
@@ -158,10 +184,36 @@
                 <StackPanel>
                     <TextBlock Text="Largest Files" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,12" />
 
-                    <ItemsControl ItemsSource="{Binding LargestFiles}">
-                        <ItemsControl.ItemTemplate>
+                    <ListView ItemsSource="{Binding LargestFiles}"
+                              MaxHeight="380"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                              ScrollViewer.VerticalScrollBarVisibility="Auto"
+                              ScrollViewer.CanContentScroll="True"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              VirtualizingPanel.ScrollUnit="Pixel">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,2" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Focusable" Value="False" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListViewItem">
+                                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center" />
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
                             <DataTemplate>
-                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,8" Margin="0,3">
+                                <Border Background="{StaticResource CardElevatedBackgroundBrush}" CornerRadius="4" Padding="10,8">
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
@@ -177,8 +229,8 @@
                                     </Grid>
                                 </Border>
                             </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                        </ListView.ItemTemplate>
+                    </ListView>
                 </StackPanel>
             </Border>
 

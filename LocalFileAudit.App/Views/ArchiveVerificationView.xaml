@@ -30,7 +30,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <StackPanel>
-                <TextBlock Text="Archive Verification (Compare-Archive)" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
+                <TextBlock Text="Archive Verifier" FontSize="24" FontWeight="Bold" Margin="0,0,0,4" />
                 <TextBlock Text="Validate integrity of archived external backups against local source folders via relative path matching, sizes, and on-demand SHA-256."
                            Foreground="{StaticResource TextSecondaryBrush}" FontSize="13" />
             </StackPanel>

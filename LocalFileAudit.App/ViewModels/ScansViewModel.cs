@@ -74,19 +74,39 @@ public sealed partial class ScansViewModel : ViewModelBase
     public ObservableCollection<DriveSelectionItem> AvailableDrives { get; } = new();
     public ObservableCollection<ScanRun> RecentScans { get; } = new();
 
-    public Action<Guid>? OnNavigateToInventoryWithScan { get; set; }
-    public Action<Guid>? OnNavigateToAnalysisWithScan { get; set; }
+    public Func<Guid, Task>? OnNavigateToInventoryWithScan { get; set; }
+    public Func<Guid, Task>? OnNavigateToAnalysisWithScan { get; set; }
 
     [RelayCommand]
-    public void ViewInventoryForScan(Guid scanRunId)
+    public async Task ViewInventoryForScanAsync(Guid scanRunId)
     {
-        OnNavigateToInventoryWithScan?.Invoke(scanRunId);
+        if (OnNavigateToInventoryWithScan != null)
+        {
+            try
+            {
+                await OnNavigateToInventoryWithScan(scanRunId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed navigating to inventory with scan {ScanId}", scanRunId);
+            }
+        }
     }
 
     [RelayCommand]
-    public void ViewAnalysisForScan(Guid scanRunId)
+    public async Task ViewAnalysisForScanAsync(Guid scanRunId)
     {
-        OnNavigateToAnalysisWithScan?.Invoke(scanRunId);
+        if (OnNavigateToAnalysisWithScan != null)
+        {
+            try
+            {
+                await OnNavigateToAnalysisWithScan(scanRunId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed navigating to analysis with scan {ScanId}", scanRunId);
+            }
+        }
     }
 
     [RelayCommand]
@@ -210,10 +230,16 @@ public sealed partial class ScansViewModel : ViewModelBase
             var run = await _scanEngine.StartScanAsync(target, _scanCts.Token, progress);
             if (run.Status == ScanState.Completed)
             {
-                ScanStatusText = $"Scan completed: {run.FilesDiscovered:N0} files inventoried in {ElapsedTime:hh\\:mm\\:ss}.";
+                var errorSuffix = run.ErrorCount > 0
+                    ? $" ({run.ErrorCount:N0} inaccessible paths encountered — detailed in ScanErrors.csv)"
+                    : string.Empty;
+
+                ScanStatusText = $"Scan completed: {run.FilesDiscovered:N0} files inventoried in {ElapsedTime:hh\\:mm\\:ss}{errorSuffix}.";
                 _notificationService.NotifyScanCompleted(
                     "Scan Complete",
-                    $"{run.FilesDiscovered:N0} files inventoried safely in {ElapsedTime:mm\\:ss}.",
+                    run.ErrorCount > 0
+                        ? $"{run.FilesDiscovered:N0} files inventoried safely ({run.ErrorCount:N0} skipped paths in ScanErrors.csv)."
+                        : $"{run.FilesDiscovered:N0} files inventoried safely in {ElapsedTime:mm\\:ss}.",
                     isSuccess: true);
             }
             else
@@ -238,6 +264,7 @@ public sealed partial class ScansViewModel : ViewModelBase
         {
             IsScanning = false;
             IsPaused = false;
+            CurrentDirectory = "Ready";
             _scanCts?.Dispose();
             _scanCts = null;
             await RefreshScansAsync();
@@ -292,7 +319,10 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             var run = await _scanEngine.ResumeScanAsync(runId, _scanCts.Token, progress);
-            ScanStatusText = $"Scan resumed and {run.Status}: {run.FilesDiscovered:N0} total files.";
+            var resumeErrorSuffix = run.ErrorCount > 0
+                ? $" ({run.ErrorCount:N0} inaccessible paths encountered — detailed in ScanErrors.csv)"
+                : string.Empty;
+            ScanStatusText = $"Scan resumed and {run.Status}: {run.FilesDiscovered:N0} total files{resumeErrorSuffix}.";
         }
         catch (Exception ex)
         {
@@ -303,6 +333,7 @@ public sealed partial class ScansViewModel : ViewModelBase
         {
             IsScanning = false;
             IsPaused = false;
+            CurrentDirectory = "Ready";
             _scanCts?.Dispose();
             _scanCts = null;
             await RefreshScansAsync();

@@ -96,7 +96,7 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 ErrorCountText = $"{latest.ErrorCount:N0} errors";
 
                 // Load deterministic metrics for dashboard charts & hotspots
-                var metrics = await _analysisEngine.AnalyzeScanAsync(latest.Id);
+                var metrics = await Task.Run(() => _analysisEngine.AnalyzeScanAsync(latest.Id));
 
                 TotalLogicalSizeBytes = metrics.TotalLogicalSizeBytes;
 

@@ -59,7 +59,7 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         _environment = environment ?? throw new ArgumentNullException(nameof(environment));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-        Title = "Archive Batch Planner";
+        Title = "Archive Plan";
         _ = LoadPlanAsync();
     }
 

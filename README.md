@@ -150,7 +150,7 @@ LocalFileAudit works completely offline without AI. If you wish to enable the op
    ollama serve
    ```
 4. In **LocalFileAudit**, navigate to **Settings** and ensure the Ollama Endpoint is set to `http://127.0.0.1:11434` and your chosen model is selected.
-5. Visit the **AI Insights** tab to generate explainable narrative summaries.
+5. Visit the **AI Reports** tab to generate explainable narrative summaries.
 
 ---
 

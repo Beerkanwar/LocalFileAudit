@@ -80,7 +80,7 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _notificationService = notificationService;
 
-        Title = "Archive Verification (Compare-Archive)";
+        Title = "Archive Verifier";
     }
 
     [RelayCommand]

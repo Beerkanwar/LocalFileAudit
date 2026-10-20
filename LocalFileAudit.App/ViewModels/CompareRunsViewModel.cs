@@ -65,7 +65,7 @@ public sealed partial class CompareRunsViewModel : ViewModelBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _notificationService = notificationService;
 
-        Title = "Run Comparison & Change Tracking";
+        Title = "Run Comparison";
         _ = LoadAvailableRunsAsync();
     }
 
