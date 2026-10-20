@@ -102,7 +102,7 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Target Scan Run:" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,10,0" />
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableScans}" SelectedItem="{Binding SelectedScan}" DisplayMemberPath="SelectedDrives" Height="30" FontSize="12" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableScans}" SelectedItem="{Binding SelectedScan}" DisplayMemberPath="DisplayText" Height="30" FontSize="12" />
                     </Grid>
 
                     <!-- Preview Text Box -->

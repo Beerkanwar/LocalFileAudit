@@ -66,7 +66,7 @@
 
                     <StackPanel Grid.Column="0" Margin="0,0,12,0">
                         <TextBlock Text="SCAN RUN" FontSize="10" FontWeight="Bold" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,4" />
-                        <ComboBox ItemsSource="{Binding AvailableScans}" SelectedItem="{Binding SelectedScan}" DisplayMemberPath="SelectedDrives" Height="32" FontSize="12" />
+                        <ComboBox ItemsSource="{Binding AvailableScans}" SelectedItem="{Binding SelectedScan}" DisplayMemberPath="DisplayText" Height="32" FontSize="12" />
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Margin="0,0,12,0">

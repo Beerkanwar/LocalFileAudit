@@ -15,6 +15,7 @@ public sealed class ScanRun
     public long DirectoriesCompleted { get; set; }
     public long ErrorCount { get; set; }
     public string ApplicationVersion { get; set; } = "1.0.0";
+    public string DisplayText => $"Scan {StartTimeUtc.ToLocalTime():yyyy-MM-dd HH:mm} — {(string.IsNullOrEmpty(SelectedDrives) ? "All Drives" : SelectedDrives)} ({FilesDiscovered:N0} files)";
 }
 
 /// <summary>
