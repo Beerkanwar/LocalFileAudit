@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      uses: actions/checkout@v4
 
     - name: Verify tag matches Directory.Build.props version
       shell: pwsh
@@ -26,7 +26,7 @@ jobs:
         if ($v -ne $tag) { throw "Tag '${{ github.ref_name }}' does not match Directory.Build.props version '$v'" }
 
     - name: Setup .NET SDK
-      uses: actions/setup-dotnet@395042844436875d69eac7840a6428c51084bc49 # v4.2.0
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '9.0.x'
 
@@ -77,7 +77,7 @@ jobs:
         }
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@c95fe148935b9c7a1815966172d2037ed86b0e92 # v2.2.1
+      uses: softprops/action-gh-release@v2
       with:
         files: |
           LocalFileAudit-${{ github.ref_name }}-win-x64.zip

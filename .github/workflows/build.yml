@@ -13,10 +13,10 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      uses: actions/checkout@v4
 
     - name: Setup .NET SDK
-      uses: actions/setup-dotnet@395042844436875d69eac7840a6428c51084bc49 # v4.2.0
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '9.0.x'
 
@@ -39,7 +39,7 @@ jobs:
       run: dotnet test LocalFileAudit.slnx --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test_results.trx"
 
     - name: Publish test results
-      uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results
