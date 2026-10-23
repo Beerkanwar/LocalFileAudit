@@ -198,7 +198,7 @@
                              Background="{StaticResource CardElevatedBackgroundBrush}" Foreground="{StaticResource TextPrimaryBrush}"
                              BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" />
 
-                    <TextBlock Grid.Column="2" Text="{Binding FilteredItems.Count, StringFormat='{}Showing {0:N0} records'}"
+                    <TextBlock Grid.Column="2" Text="{Binding ResultsCountText}"
                                FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center" />
                 </Grid>
 

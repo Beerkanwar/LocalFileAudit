@@ -51,6 +51,12 @@ public sealed partial class CompareRunsViewModel : ViewModelBase
     [ObservableProperty]
     private RunComparisonResult? _comparisonResult;
 
+    [ObservableProperty]
+    private string _resultsCountText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isTruncated;
+
     public ObservableCollection<ScanRunOption> AvailableRuns { get; } = new();
     public ObservableCollection<FileDeltaRecord> FilteredDeltas { get; } = new();
     public ObservableCollection<ExtensionDelta> ExtensionDeltas { get; } = new();
@@ -187,11 +193,19 @@ public sealed partial class CompareRunsViewModel : ViewModelBase
             query = query.Where(d => d.FullPath.Contains(term, StringComparison.OrdinalIgnoreCase));
         }
 
+        var allDeltas = query.ToList();
+        var total = allDeltas.Count;
+
         FilteredDeltas.Clear();
-        foreach (var item in query.Take(1000))
+        foreach (var item in allDeltas.Take(1000))
         {
             FilteredDeltas.Add(item);
         }
+
+        IsTruncated = total > 1000;
+        ResultsCountText = total > 1000
+            ? $"Showing 1,000 of {total:N0} records (Export CSV to view full dataset)"
+            : $"{total:N0} records";
     }
 
     [RelayCommand]

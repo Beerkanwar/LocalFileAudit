@@ -26,6 +26,7 @@ public sealed class ScanningConfiguration
     public bool CompletionNotificationEnabled { get; set; } = true;
     public bool CompletionSoundEnabled { get; set; } = true;
     public bool RecordCloudPlaceholders { get; set; } = true;
+    public List<string> ExcludedPaths { get; set; } = new();
 }
 
 /// <summary>
@@ -46,6 +47,7 @@ public sealed class AiConfiguration
     public bool Enabled { get; set; } = false;
     public string Endpoint { get; set; } = "http://127.0.0.1:11434";
     public bool RequireLocalEndpoint { get; set; } = true;
+    [Obsolete("LocalFileAudit permanently enforces read-only metadata scanning. Document file text bodies are never read or sent to AI models.")]
     public bool SendDocumentContents { get; set; } = false;
     public int TimeoutSeconds { get; set; } = 180;
     public string ModelName { get; set; } = "qwen2.5:7b";

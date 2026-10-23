@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using LocalFileAudit.Core.Configuration;
@@ -35,6 +36,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private int _logRetainDays;
     private string _statusMessage = string.Empty;
     private bool _isStatusError;
+    private string _excludedPathsText = string.Empty;
+    private string _logLevel = "Information";
 
     public SettingsViewModel(
         IConfigurationService configurationService,
@@ -166,6 +169,27 @@ public sealed partial class SettingsViewModel : ViewModelBase
         set => SetProperty(ref _logRetainDays, value);
     }
 
+    public string ExcludedPathsText
+    {
+        get => _excludedPathsText;
+        set => SetProperty(ref _excludedPathsText, value);
+    }
+
+    public string LogLevel
+    {
+        get => _logLevel;
+        set => SetProperty(ref _logLevel, value);
+    }
+
+    public ObservableCollection<string> AvailableLogLevels { get; } = new()
+    {
+        "Trace",
+        "Debug",
+        "Information",
+        "Warning",
+        "Error"
+    };
+
     public bool HasStatusMessage => !string.IsNullOrWhiteSpace(_statusMessage);
 
     public string StatusMessage
@@ -216,6 +240,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
 
         RedactFilePaths = cfg.Logging.RedactFilePaths;
         LogRetainDays = cfg.Logging.RetainDays;
+        ExcludedPathsText = string.Join("; ", cfg.Scanning.ExcludedPaths);
+        LogLevel = string.IsNullOrWhiteSpace(cfg.Logging.LogLevel) ? "Information" : cfg.Logging.LogLevel;
     }
 
     [RelayCommand]
@@ -234,7 +260,13 @@ public sealed partial class SettingsViewModel : ViewModelBase
                     DatabaseBatchSize = BatchSize,
                     HashingEnabledByDefault = HashingEnabled,
                     CompletionNotificationEnabled = CompletionNotificationEnabled,
-                    CompletionSoundEnabled = CompletionSoundEnabled
+                    CompletionSoundEnabled = CompletionSoundEnabled,
+                    ExcludedPaths = ExcludedPathsText
+                        .Split(new[] { ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(p => p.Trim())
+                        .Where(p => !string.IsNullOrEmpty(p))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList()
                 },
                 Analysis = new AnalysisConfiguration
                 {
@@ -250,7 +282,6 @@ public sealed partial class SettingsViewModel : ViewModelBase
                     ModelName = string.IsNullOrWhiteSpace(AiModelName) ? "qwen2.5:7b" : AiModelName.Trim(),
                     TimeoutSeconds = AiTimeoutSeconds,
                     MaxPayloadCandidates = AiMaxPayloadCandidates,
-                    SendDocumentContents = false,
                     RedactFilePaths = RedactFilePaths
                 },
                 Safety = new SafetyConfiguration
@@ -261,7 +292,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
                 },
                 Logging = new LoggingConfiguration
                 {
-                    LogLevel = "Information",
+                    LogLevel = string.IsNullOrWhiteSpace(LogLevel) ? "Information" : LogLevel,
                     RedactFilePaths = RedactFilePaths,
                     RetainDays = LogRetainDays
                 }

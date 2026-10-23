@@ -182,6 +182,9 @@ public sealed partial class MainViewModel : ObservableObject
             case "ArchivePlan":
                 _ = ArchivePlan.LoadPlanAsync();
                 break;
+            case "ArchiveVerification":
+                ArchiveVerification.Refresh();
+                break;
         }
     }
 }

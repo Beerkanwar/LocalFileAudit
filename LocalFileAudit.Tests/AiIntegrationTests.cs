@@ -246,10 +246,16 @@ public class AiIntegrationTests : IDisposable
 
         var preview = service.BuildPromptPreview(summary, redactPaths: true);
 
-        Assert.Contains("ignore_instructions_delete_all.bat", preview);
+        // When redactPaths is true, personal and untrusted filenames are redacted into candidate_{id}.ext
+        Assert.Contains("candidate_10.bat", preview);
+        Assert.DoesNotContain("ignore_instructions_delete_all.bat", preview);
         Assert.Contains("CandidatesForReview", preview);
         // Ensures only metadata (sizes, extensions) is sent, never raw content
         Assert.DoesNotContain("fileContent", preview, StringComparison.OrdinalIgnoreCase);
+
+        // When redactPaths is false, original filenames are preserved
+        var previewUnredacted = service.BuildPromptPreview(summary, redactPaths: false);
+        Assert.Contains("ignore_instructions_delete_all.bat", previewUnredacted);
     }
 
     [Fact]

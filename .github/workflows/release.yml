@@ -15,7 +15,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
     - name: Verify tag matches Directory.Build.props version
       shell: pwsh
@@ -26,7 +26,7 @@ jobs:
         if ($v -ne $tag) { throw "Tag '${{ github.ref_name }}' does not match Directory.Build.props version '$v'" }
 
     - name: Setup .NET SDK
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@395042844436875d69eac7840a6428c51084bc49 # v4.2.0
       with:
         dotnet-version: '9.0.x'
 
@@ -42,7 +42,7 @@ jobs:
     - name: Run automated test suite
       run: dotnet test LocalFileAudit.slnx --configuration Release --verbosity normal
 
-    - name: Publish Self-Contained Binary (win-x64)
+    - name: Publish Self-Contained Binaries (win-x64 and win-arm64)
       run: |
         dotnet publish LocalFileAudit.App/LocalFileAudit.App.csproj `
           --configuration Release `
@@ -51,28 +51,39 @@ jobs:
           -p:PublishSingleFile=true `
           -p:DebugType=none `
           -p:DebugSymbols=false `
-          --output ./publish-release/
+          --output ./publish-release-x64/
 
-    - name: Package Release ZIP (excluding PDBs)
+        dotnet publish LocalFileAudit.App/LocalFileAudit.App.csproj `
+          --configuration Release `
+          --runtime win-arm64 `
+          --self-contained true `
+          -p:PublishSingleFile=true `
+          -p:DebugType=none `
+          -p:DebugSymbols=false `
+          --output ./publish-release-arm64/
+
+    - name: Package Release ZIPs (excluding PDBs)
       shell: pwsh
       run: |
-        # Ensure no PDBs exist
-        Get-ChildItem -Path ./publish-release -Filter *.pdb -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
+        foreach ($target in @('x64', 'arm64')) {
+          $pubDir = "./publish-release-$target"
+          Get-ChildItem -Path $pubDir -Filter *.pdb -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
-        $zipName = "LocalFileAudit-${{ github.ref_name }}-win-x64.zip"
-        # Create zip archive
-        Compress-Archive -Path ./publish-release/* -DestinationPath ./$zipName -Force
+          $zipName = "LocalFileAudit-${{ github.ref_name }}-win-$target.zip"
+          Compress-Archive -Path $pubDir/* -DestinationPath ./$zipName -Force
 
-        # Generate SHA256 checksum
-        $hash = (Get-FileHash -Algorithm SHA256 ./$zipName).Hash
-        "$hash  $zipName" | Out-File -FilePath ./$zipName.sha256 -Encoding ascii
+          $hash = (Get-FileHash -Algorithm SHA256 ./$zipName).Hash
+          "$hash  $zipName" | Out-File -FilePath ./$zipName.sha256 -Encoding ascii
+        }
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@c95fe148935b9c7a1815966172d2037ed86b0e92 # v2.2.1
       with:
         files: |
           LocalFileAudit-${{ github.ref_name }}-win-x64.zip
           LocalFileAudit-${{ github.ref_name }}-win-x64.zip.sha256
+          LocalFileAudit-${{ github.ref_name }}-win-arm64.zip
+          LocalFileAudit-${{ github.ref_name }}-win-arm64.zip.sha256
         draft: false
         prerelease: false
         generate_release_notes: true

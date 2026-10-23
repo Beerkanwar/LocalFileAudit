@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -90,7 +91,7 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
                 TotalFilesDiscoveredText = $"{filesCount:N0} files";
                 TotalLogicalSizeText = $"{totalBytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
-                DrivesCountText = $"{latest.SelectedDrives.Split(';', StringSplitOptions.RemoveEmptyEntries).Length} roots";
+                DrivesCountText = $"{SelectedRootsHelper.ParseRoots(latest.SelectedDrives).Count} roots";
                 ScanStateText = $"{latest.Status}";
                 LastScanTimeText = latest.StartTimeUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
                 ErrorCountText = $"{latest.ErrorCount:N0} errors";

@@ -247,7 +247,7 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
                 if (!reader.IsDBNull(1))
                 {
                     var drivesStr = reader.GetString(1);
-                    var parts = drivesStr.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
+                    var parts = SelectedRootsHelper.ParseRoots(drivesStr);
                     foreach (var p in parts)
                     {
                         var norm = NormalizeDirPath(p.Trim());

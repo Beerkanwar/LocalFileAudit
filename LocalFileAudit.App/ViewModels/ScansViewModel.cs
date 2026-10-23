@@ -217,6 +217,7 @@ public sealed partial class ScansViewModel : ViewModelBase
         var target = new ScanTarget
         {
             TargetPaths = selectedRoots,
+            ExcludedPaths = config.Scanning.ExcludedPaths.ToList(),
             FollowReparsePoints = config.Scanning.FollowReparsePoints,
             LowImpactMode = config.Scanning.LowImpactMode
         };

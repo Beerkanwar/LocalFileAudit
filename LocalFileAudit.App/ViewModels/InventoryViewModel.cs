@@ -383,22 +383,41 @@ public sealed partial class InventoryViewModel : ViewModelBase
             if (value.MetadataStatus == ScanMetadataStatus.CloudPlaceholder) attrList.Add("Cloud Placeholder");
             SelectedAttributesText = attrList.Count > 0 ? string.Join(", ", attrList) : "Normal";
 
-            // On-demand allocated (on-disk) size via Win32 GetCompressedFileSize
+            // On-demand allocated (on-disk) size via Win32 GetCompressedFileSize (non-blocking)
             if (value.MetadataStatus == ScanMetadataStatus.CloudPlaceholder)
             {
                 SelectedAllocatedSizeText = "0 bytes (Cloud Placeholder / On-demand)";
             }
             else
             {
-                var allocated = LocalFileAudit.Infrastructure.Scanning.FileAllocationHelper.GetAllocatedSizeBytes(value.FullPath);
-                if (allocated.HasValue)
+                SelectedAllocatedSizeText = "Querying allocated size...";
+                var targetPath = value.FullPath;
+                _ = Task.Run(() =>
                 {
-                    SelectedAllocatedSizeText = $"{allocated.Value / (1024.0 * 1024.0):F2} MB ({allocated.Value:N0} bytes)";
-                }
-                else
-                {
-                    SelectedAllocatedSizeText = "N/A (Offline or Inaccessible)";
-                }
+                    try
+                    {
+                        var allocated = LocalFileAudit.Infrastructure.Scanning.FileAllocationHelper.GetAllocatedSizeBytes(targetPath);
+                        System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+                        {
+                            if (SelectedFile?.FullPath == targetPath)
+                            {
+                                SelectedAllocatedSizeText = allocated.HasValue
+                                    ? $"{allocated.Value / (1024.0 * 1024.0):F2} MB ({allocated.Value:N0} bytes)"
+                                    : "N/A (Offline or Inaccessible)";
+                            }
+                        });
+                    }
+                    catch
+                    {
+                        System.Windows.Application.Current?.Dispatcher.InvokeAsync(() =>
+                        {
+                            if (SelectedFile?.FullPath == targetPath)
+                            {
+                                SelectedAllocatedSizeText = "N/A (Offline or Inaccessible)";
+                            }
+                        });
+                    }
+                });
             }
         }
         catch (Exception ex)

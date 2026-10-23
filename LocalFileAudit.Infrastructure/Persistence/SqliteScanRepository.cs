@@ -951,16 +951,12 @@ public sealed class SqliteScanRepository : IScanRepository
                 foreach (var delta in comparison.Deltas)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var escapedPath = delta.FullPath.Contains(',') || delta.FullPath.Contains('"')
-                        ? $"\"{delta.FullPath.Replace("\"", "\"\"")}\""
-                        : delta.FullPath;
-
                     var line = string.Format(
                         System.Globalization.CultureInfo.InvariantCulture,
                         "{0},{1},{2},{3},{4},{5},{6},{7}",
-                        delta.DeltaType,
-                        escapedPath,
-                        delta.Extension,
+                        CsvSanitizer.EscapeCsv(delta.DeltaType.ToString()),
+                        CsvSanitizer.EscapeCsv(delta.FullPath),
+                        CsvSanitizer.EscapeCsv(delta.Extension),
                         delta.BaselineSizeBytes,
                         delta.TargetSizeBytes,
                         delta.SizeDeltaBytes,

@@ -107,6 +107,18 @@
                         <TextBox Grid.Column="1" Text="{Binding BatchSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" />
                         <TextBlock Grid.Column="2" Text="(10 to 50000, default: 500)" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center" Margin="10,0,0,0" FontSize="12" />
                     </Grid>
+
+                    <Grid Margin="0,10,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="280" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Excluded Directories / Paths:" FontSize="13" />
+                            <TextBlock Text="(Semicolon-separated folder names or paths to ignore, e.g. node_modules; .git)" Foreground="{StaticResource TextMutedBrush}" FontSize="11" Margin="0,2,0,0" />
+                        </StackPanel>
+                        <TextBox Grid.Column="1" Text="{Binding ExcludedPathsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Height="28" VerticalContentAlignment="Center" Margin="10,0,0,0" />
+                    </Grid>
                 </StackPanel>
             </Border>
 
@@ -210,6 +222,15 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Log File Retention Period (Days):" VerticalAlignment="Center" FontSize="13" />
                         <TextBox Grid.Column="1" Text="{Binding LogRetainDays, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Width="80" HorizontalAlignment="Left" />
+                    </Grid>
+
+                    <Grid Margin="0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="280" />
+                            <ColumnDefinition Width="150" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Logging Verbosity Level:" VerticalAlignment="Center" FontSize="13" />
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding AvailableLogLevels}" SelectedItem="{Binding LogLevel, Mode=TwoWay}" Height="28" />
                     </Grid>
                 </StackPanel>
             </Border>

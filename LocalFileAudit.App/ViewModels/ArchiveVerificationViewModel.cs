@@ -60,6 +60,12 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
     [ObservableProperty]
     private string _searchFilter = string.Empty;
 
+    [ObservableProperty]
+    private string _resultsCountText = string.Empty;
+
+    [ObservableProperty]
+    private bool _isTruncated;
+
     public ObservableCollection<ArchiveVerificationItem> FilteredItems { get; } = new();
     public ObservableCollection<string> StatusFilterOptions { get; } = new()
     {
@@ -82,6 +88,14 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
         _notificationService = notificationService;
 
         Title = "Archive Verifier";
+    }
+
+    public void Refresh()
+    {
+        if (Summary != null)
+        {
+            ApplyFilter();
+        }
     }
 
     [RelayCommand]
@@ -234,10 +248,18 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
                                      i.Details.Contains(term, StringComparison.OrdinalIgnoreCase));
         }
 
+        var allItems = query.ToList();
+        var total = allItems.Count;
+
         FilteredItems.Clear();
-        foreach (var item in query.Take(1000))
+        foreach (var item in allItems.Take(1000))
         {
             FilteredItems.Add(item);
         }
+
+        IsTruncated = total > 1000;
+        ResultsCountText = total > 1000
+            ? $"Showing 1,000 of {total:N0} records (Export CSV to view full dataset)"
+            : $"{total:N0} records";
     }
 }

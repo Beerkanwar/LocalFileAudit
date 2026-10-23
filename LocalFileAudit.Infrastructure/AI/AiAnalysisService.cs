@@ -82,7 +82,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
             CandidatesForReview = uniqueCandidates.Select(c => new
             {
                 CandidateId = c.FileRecordId,
-                FileName = redactPaths ? PathRedactor.Redact(c.FileName) : c.FileName,
+                FileName = redactPaths ? PathRedactor.RedactFileName(c.FileName, c.FileRecordId) : c.FileName,
                 Extension = c.Extension,
                 SizeMb = Math.Round(c.SizeBytes / (1024.0 * 1024.0), 2),
                 DeterministicCategory = c.Category.ToString(),
@@ -495,7 +495,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
                 var f = await _repository.GetFileByIdAsync(cid, cancellationToken).ConfigureAwait(false);
                 if (f != null)
                 {
-                    var fileName = shouldRedact ? PathRedactor.Redact(f.FileName) : f.FileName;
+                    var fileName = shouldRedact ? PathRedactor.RedactFileName(f.FileName, f.Id) : f.FileName;
                     candidateContextList.Add($"[File Context: Name={fileName}, Size={f.SizeBytes:N0} bytes, Ext={f.Extension}, Modified={f.LastWriteTimeUtc:yyyy-MM-dd}]");
                 }
             }

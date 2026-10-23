@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.12] - 2026-10-24
+
+### Security & Architecture Audit Remediation
+- **AI Payload File Name Redaction (SEC-01 / High):**
+  - Updated `AiAnalysisService` candidate payload and chat context to call `PathRedactor.RedactFileName(fileName, candidateId)`.
+  - When `RedactFilePaths` is enabled, sensitive filenames (e.g., `Taxes_2025_JohnDoe.pdf`) are sanitized into `candidate_{id}.ext`, preventing privacy leaks to Ollama and database records.
+- **Comparison CSV Formula Injection Defense (SEC-02 / Medium):**
+  - Replaced manual quote formatting in `SqliteScanRepository.ExportComparisonCsvAsync` with `CsvSanitizer.EscapeCsv` across `DeltaType`, `FullPath`, and `Extension`.
+  - Prevents spreadsheet formula execution (`=`, `+`, `-`, `@`, `\t`, `\r`) when opening comparison exports in Excel or Calc.
+- **Root Resolution & Count Parsing (BUG-01 / Medium):**
+  - Replaced legacy comma/semicolon splitting with `SelectedRootsHelper.ParseRoots` in `StorageAnalysisEngine.GetLargestDirectoriesAsync` and `DashboardViewModel`.
+  - Scanned paths containing commas are no longer corrupted during directory aggregation, and dashboard accurately displays root count.
+- **Archive Verification Navigation Refresh (BUG-02 / Medium):**
+  - Added `case "ArchiveVerification":` to `MainViewModel.Navigate` to proactively refresh verification view state upon tab switching.
+- **Non-Blocking File Allocation Queries (PERF-01 / Medium):**
+  - Offloaded `FileAllocationHelper.GetAllocatedSizeBytes` in `InventoryViewModel.OnSelectedFileChanged` to a background task with race protection.
+  - Eliminates UI dispatcher freezing and stutter when browsing inventory files on network shares or sleeping drives.
+- **Scanner Directory Exclusions (ARCH-01 / Low):**
+  - Added `ExcludedPaths` to `ScanningConfiguration` and exposed semicolon-separated folder exclusions in `SettingsView`.
+  - Passed exclusions to `ScanTarget` in `ScansViewModel` so massive trees (e.g. `node_modules`, `.git`) can be skipped.
+- **Application Lifecycle & Dispatcher Hardening (ARCH-02 & ARCH-03 / Low):**
+  - Made `App.OnExit` synchronous with bounded wait timeout, guaranteeing host stop and mutex release finish before process exit.
+  - Hardened `DispatcherUnhandledException` to let fatal CLR corruption exceptions (`OutOfMemoryException`, `StackOverflowException`, `AccessViolationException`) fail fast rather than leaving the app in a zombie state.
+- **Result Truncation Transparency (UX-01 / Low):**
+  - Added `ResultsCountText` and `IsTruncated` alerts in `CompareRunsViewModel` and `ArchiveVerificationViewModel`.
+  - Users are clearly notified whenever matched records exceed the 1,000-item grid limit with guidance to export to CSV for full datasets.
+- **Logging Level Persistence & Config Cleanliness (CONF-01 & CONF-02 / Low):**
+  - Added configurable `LogLevel` selector in `SettingsViewModel` and `SettingsView`, preserving user diagnostics preferences across saves.
+  - Marked obsolete dead `SendDocumentContents` property in `AppConfiguration`.
+- **CI/CD Supply Chain Hardening & Multi-Architecture Release (CI-01 / Low):**
+  - Pinned all GitHub Actions (`checkout`, `setup-dotnet`, `upload-artifact`, `action-gh-release`) to immutable commit SHAs.
+  - Removed unused `System.Security.Cryptography.Pkcs` test package reference.
+  - Expanded release pipeline to build and publish self-contained single-file binaries for both Windows x64 (`win-x64`) and Windows ARM64 (`win-arm64`).
+
+---
+
 ## [1.3.11] - 2026-10-23
 
 ### Security & Hardening Remediation

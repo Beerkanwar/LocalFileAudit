@@ -105,14 +105,18 @@ public partial class App : Application
         }
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    protected override void OnExit(ExitEventArgs e)
     {
         if (_host != null)
         {
             var logger = _host.Services.GetService<ILogger<App>>();
             logger?.LogInformation("LocalFileAudit application stopping.");
 
-            await _host.StopAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                _host.StopAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult();
+            }
+            catch { }
             _host.Dispose();
         }
 
@@ -165,6 +169,13 @@ public partial class App : Application
         DispatcherUnhandledException += (s, e) =>
         {
             LogFatalException(e.Exception, "WPF Dispatcher Unhandled Exception");
+
+            if (e.Exception is OutOfMemoryException or StackOverflowException or AccessViolationException)
+            {
+                e.Handled = false;
+                return;
+            }
+
             MessageBox.Show(
                 $"An unexpected error occurred:\n\n{e.Exception.Message}\n\nThe application will continue running in safe mode. Details have been logged.",
                 "LocalFileAudit Notice",
