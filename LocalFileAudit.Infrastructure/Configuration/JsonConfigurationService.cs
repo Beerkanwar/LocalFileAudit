@@ -63,7 +63,8 @@ public sealed class JsonConfigurationService : IConfigurationService
 
                 if (loaded == null)
                 {
-                    _logger.LogWarning("Deserialized configuration was null. Falling back to default configuration.");
+                    _logger.LogWarning("Deserialized configuration was null. Backing up and falling back to default configuration.");
+                    BackupCorruptedConfig();
                     _current = new AppConfiguration();
                     return _current;
                 }
@@ -71,7 +72,8 @@ public sealed class JsonConfigurationService : IConfigurationService
                 var validation = _validator.Validate(loaded);
                 if (!validation.IsValid)
                 {
-                    _logger.LogError("Loaded configuration failed validation: {Errors}. Reverting to safe defaults.", string.Join("; ", validation.Errors));
+                    _logger.LogError("Loaded configuration failed validation: {Errors}. Backing up and reverting to safe defaults.", string.Join("; ", validation.Errors));
+                    BackupCorruptedConfig();
                     _current = new AppConfiguration();
                     return _current;
                 }
@@ -82,7 +84,8 @@ public sealed class JsonConfigurationService : IConfigurationService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to read configuration from {ConfigPath}. Falling back to safe defaults.", _environment.ConfigFilePath);
+                _logger.LogError(ex, "Failed to read configuration from {ConfigPath}. Backing up and falling back to safe defaults.", _environment.ConfigFilePath);
+                BackupCorruptedConfig();
                 _current = new AppConfiguration();
                 return _current;
             }
@@ -90,6 +93,23 @@ public sealed class JsonConfigurationService : IConfigurationService
         finally
         {
             _fileLock.Release();
+        }
+    }
+
+    private void BackupCorruptedConfig()
+    {
+        try
+        {
+            if (File.Exists(_environment.ConfigFilePath))
+            {
+                var backupPath = _environment.ConfigFilePath + $".corrupted.{DateTime.UtcNow:yyyyMMddHHmmss}.bak";
+                File.Copy(_environment.ConfigFilePath, backupPath, overwrite: true);
+                _logger.LogWarning("Backed up corrupted or invalid configuration file to {BackupPath}", backupPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create backup of invalid configuration file.");
         }
     }
 

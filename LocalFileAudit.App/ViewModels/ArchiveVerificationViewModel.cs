@@ -68,6 +68,7 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
         "MissingAtDestination",
         "SizeMismatch",
         "HashMismatch",
+        "HashError",
         "ExtraAtDestination"
     };
 
@@ -130,13 +131,20 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
             ApplyFilter();
             HasVerificationResult = true;
 
-            var msg = $"Verification finished in {res.Duration.TotalSeconds:F1}s: {res.MatchCount:N0} matches, {res.MissingCount:N0} missing, {res.SizeMismatchCount:N0} size diffs, {res.HashMismatchCount:N0} hash diffs";
+            var msg = $"Verification finished in {res.Duration.TotalSeconds:F1}s: {res.MatchCount:N0} matches, {res.MissingCount:N0} missing, {res.SizeMismatchCount:N0} size diffs, {res.HashMismatchCount:N0} hash diffs, {res.HashErrorCount:N0} hash errors";
+            if (res.IsPartial)
+            {
+                msg += " (PARTIAL SCAN: Inaccessible files/directories skipped. DO NOT DELETE ORIGINALS)";
+            }
             StatusMessage = msg;
 
+            var isSafeSuccess = !res.IsPartial && res.MissingCount == 0 && res.SizeMismatchCount == 0 && res.HashMismatchCount == 0 && res.HashErrorCount == 0;
             _notificationService?.NotifyScanCompleted(
-                "Archive Verification Complete",
-                $"{res.MatchCount:N0} matches verified. {res.MissingCount + res.SizeMismatchCount + res.HashMismatchCount} discrepancies discovered.",
-                isSuccess: res.MissingCount == 0 && res.SizeMismatchCount == 0 && res.HashMismatchCount == 0);
+                res.IsPartial ? "Archive Verification Partial Warning" : "Archive Verification Complete",
+                res.IsPartial
+                    ? $"Verification was PARTIAL ({res.EnumerationErrors.Count} unreadable paths). Do not delete source files."
+                    : $"{res.MatchCount:N0} matches verified. {res.MissingCount + res.SizeMismatchCount + res.HashMismatchCount + res.HashErrorCount} discrepancies/errors discovered.",
+                isSuccess: isSafeSuccess);
         }
         catch (OperationCanceledException)
         {

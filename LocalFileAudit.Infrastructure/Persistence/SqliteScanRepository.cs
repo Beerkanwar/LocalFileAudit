@@ -36,7 +36,7 @@ public sealed class SqliteScanRepository : IScanRepository
         var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "PRAGMA busy_timeout = 30000; PRAGMA foreign_keys = ON;";
+        cmd.CommandText = "PRAGMA busy_timeout = 30000; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;";
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return conn;
     }
@@ -242,7 +242,10 @@ public sealed class SqliteScanRepository : IScanRepository
             cmd.Transaction = tx;
             cmd.CommandText = @"
                 INSERT INTO Directories (ScanRunId, Path, ParentPath, Status, FilesProcessed, LastCheckpointUtc, LastError)
-                VALUES (@ScanRunId, @Path, @ParentPath, @Status, @FilesProcessed, @LastCheckpointUtc, @LastError);
+                VALUES (@ScanRunId, @Path, @ParentPath, @Status, @FilesProcessed, @LastCheckpointUtc, @LastError)
+                ON CONFLICT(ScanRunId, Path) DO UPDATE SET
+                    LastCheckpointUtc = excluded.LastCheckpointUtc
+                RETURNING Id;
             ";
 
             var pScanRunId = cmd.Parameters.Add("@ScanRunId", SqliteType.Text);
@@ -263,7 +266,11 @@ public sealed class SqliteScanRepository : IScanRepository
                 pLastCheckpointUtc.Value = dir.LastCheckpointUtc.ToString("o");
                 pLastError.Value = (object?)dir.LastError ?? DBNull.Value;
 
-                await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                var idScalar = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+                if (idScalar != null && idScalar != DBNull.Value)
+                {
+                    dir.Id = Convert.ToInt64(idScalar);
+                }
             }
 
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -487,8 +494,9 @@ public sealed class SqliteScanRepository : IScanRepository
 
         if (!string.IsNullOrWhiteSpace(query.SearchText))
         {
-            whereConditions.Add("(FileName LIKE @SearchText OR FullPath LIKE @SearchText)");
-            parameters.Add(new SqliteParameter("@SearchText", $"%{query.SearchText.Trim()}%"));
+            var escapedSearch = EscapeLike(query.SearchText.Trim());
+            whereConditions.Add("(FileName LIKE @SearchText ESCAPE '\\' OR FullPath LIKE @SearchText ESCAPE '\\')");
+            parameters.Add(new SqliteParameter("@SearchText", $"%{escapedSearch}%"));
         }
 
         if (!string.IsNullOrWhiteSpace(query.Extension))
@@ -501,8 +509,9 @@ public sealed class SqliteScanRepository : IScanRepository
 
         if (!string.IsNullOrWhiteSpace(query.DriveOrPrefix))
         {
-            whereConditions.Add("FullPath LIKE @Prefix");
-            parameters.Add(new SqliteParameter("@Prefix", $"{query.DriveOrPrefix.Trim()}%"));
+            var escapedPrefix = EscapeLike(query.DriveOrPrefix.Trim());
+            whereConditions.Add("FullPath LIKE @Prefix ESCAPE '\\'");
+            parameters.Add(new SqliteParameter("@Prefix", $"{escapedPrefix}%"));
         }
 
         if (query.MinSizeBytes.HasValue)
@@ -857,7 +866,7 @@ public sealed class SqliteScanRepository : IScanRepository
             FROM Files a
             INNER JOIN Files b ON b.ScanRunId = @TargetRunId AND b.FullPath = a.FullPath
             WHERE a.ScanRunId = @BaselineRunId
-              AND (a.SizeBytes != b.SizeBytes OR a.LastWriteTimeUtc != b.LastWriteTimeUtc)
+              AND (a.SizeBytes != b.SizeBytes OR a.LastWriteTimeUtc IS NOT b.LastWriteTimeUtc)
             ORDER BY 1 ASC;
         ";
         cmd.Parameters.AddWithValue("@BaselineRunId", baselineRunId.ToString());
@@ -1060,7 +1069,7 @@ public sealed class SqliteScanRepository : IScanRepository
             LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
             Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
             ObservedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
-            MetadataStatus = Enum.Parse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true),
+            MetadataStatus = Enum.TryParse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true, out var metaStatus) ? metaStatus : ScanMetadataStatus.Ok,
             HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
             HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))
         };
@@ -1073,7 +1082,7 @@ public sealed class SqliteScanRepository : IScanRepository
             Id = Guid.Parse(reader.GetString(reader.GetOrdinal("Id"))),
             StartTimeUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("StartTimeUtc"))),
             EndTimeUtc = reader.IsDBNull(reader.GetOrdinal("EndTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("EndTimeUtc"))),
-            Status = Enum.Parse<ScanState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true),
+            Status = Enum.TryParse<ScanState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true, out var scanStatus) ? scanStatus : ScanState.Failed,
             SelectedDrives = reader.GetString(reader.GetOrdinal("SelectedDrives")),
             ConfigurationSnapshot = reader.GetString(reader.GetOrdinal("ConfigurationSnapshot")),
             FilesDiscovered = reader.GetInt64(reader.GetOrdinal("FilesDiscovered")),
@@ -1091,11 +1100,16 @@ public sealed class SqliteScanRepository : IScanRepository
             ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
             Path = reader.GetString(reader.GetOrdinal("Path")),
             ParentPath = reader.IsDBNull(reader.GetOrdinal("ParentPath")) ? null : reader.GetString(reader.GetOrdinal("ParentPath")),
-            Status = Enum.Parse<DirectoryState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true),
+            Status = Enum.TryParse<DirectoryState>(reader.GetString(reader.GetOrdinal("Status")), ignoreCase: true, out var dirStatus) ? dirStatus : DirectoryState.Pending,
             FilesProcessed = reader.GetInt32(reader.GetOrdinal("FilesProcessed")),
             LastCheckpointUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastCheckpointUtc"))),
             LastError = reader.IsDBNull(reader.GetOrdinal("LastError")) ? null : reader.GetString(reader.GetOrdinal("LastError"))
         };
+    }
+
+    private static string EscapeLike(string value)
+    {
+        return value.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
     }
 
     public async Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default)

@@ -50,6 +50,7 @@ public sealed class AiConfiguration
     public int TimeoutSeconds { get; set; } = 180;
     public string ModelName { get; set; } = "qwen2.5:7b";
     public int MaxPayloadCandidates { get; set; } = 25;
+    public bool RedactFilePaths { get; set; } = true;
 }
 
 /// <summary>

@@ -65,9 +65,17 @@ public sealed class ConfigurationValidator : IConfigurationValidator
         }
 
         // 4. AI endpoint safety
-        if (config.AI.RequireLocalEndpoint && !string.IsNullOrWhiteSpace(config.AI.Endpoint))
+        if (string.IsNullOrWhiteSpace(config.AI.Endpoint))
         {
-            if (Uri.TryCreate(config.AI.Endpoint, UriKind.Absolute, out var uri))
+            errors.Add("AI.Endpoint cannot be empty.");
+        }
+        else if (Uri.TryCreate(config.AI.Endpoint, UriKind.Absolute, out var uri))
+        {
+            if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+            {
+                errors.Add($"AI endpoint '{config.AI.Endpoint}' must use http or https scheme.");
+            }
+            else if (config.AI.RequireLocalEndpoint)
             {
                 var isLoopback = uri.IsLoopback ||
                                  string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
@@ -79,10 +87,10 @@ public sealed class ConfigurationValidator : IConfigurationValidator
                     errors.Add($"AI safety violation: AI endpoint '{config.AI.Endpoint}' is not a local loopback address, but RequireLocalEndpoint is enabled.");
                 }
             }
-            else
-            {
-                errors.Add($"AI endpoint '{config.AI.Endpoint}' is not a valid absolute URI.");
-            }
+        }
+        else
+        {
+            errors.Add($"AI endpoint '{config.AI.Endpoint}' is not a valid absolute URI.");
         }
 
         if (config.AI.TimeoutSeconds < 1 || config.AI.TimeoutSeconds > 600)

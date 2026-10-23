@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using LocalFileAudit.Infrastructure.Scanning;
@@ -58,7 +59,18 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load archive plan from {Path}. Returning empty plan.", _planFilePath);
+            _logger.LogError(ex, "Failed to load archive plan from {Path}. Backing up corrupted file.", _planFilePath);
+            try
+            {
+                if (File.Exists(_planFilePath))
+                {
+                    File.Copy(_planFilePath, _planFilePath + ".corrupted.bak", overwrite: true);
+                }
+            }
+            catch
+            {
+                // Best effort backup
+            }
             return new ArchivePlan();
         }
     }
@@ -90,8 +102,18 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         }
 
         var tempPath = Path.Combine(dir ?? Path.GetTempPath(), $".staging_plan_{Guid.NewGuid():N}.tmp");
-        await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
-        File.Move(tempPath, _planFilePath, overwrite: true);
+        try
+        {
+            await File.WriteAllTextAsync(tempPath, json, Encoding.UTF8, cancellationToken).ConfigureAwait(false);
+            File.Move(tempPath, _planFilePath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+        }
 
         _logger.LogInformation("Successfully saved archive plan ({BatchCount} batches) to {Path}", plan.Batches.Count, _planFilePath);
     }
@@ -136,6 +158,12 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         var previewScriptPath = Path.Combine(outputDirectory, "preview-archive.ps1");
         var copyScriptPath = Path.Combine(outputDirectory, "copy-archive.ps1");
 
+        // 0. Validate batch paths do not overlap
+        foreach (var b in plan.Batches)
+        {
+            ValidatePathsDoNotOverlap(b.SourcePath, b.PlannedDestinationPath);
+        }
+
         // 1. Generate ArchiveManifest.csv
         var manifestSb = new StringBuilder();
         manifestSb.AppendLine("BatchName,SourcePath,PlannedDestination,Reason,EstimatedSizeBytes,FileCount,IsVerified");
@@ -144,10 +172,10 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             manifestSb.AppendLine(string.Format(
                 System.Globalization.CultureInfo.InvariantCulture,
                 "{0},{1},{2},{3},{4},{5},{6}",
-                EscapeCsv(b.BatchName),
-                EscapeCsv(b.SourcePath),
-                EscapeCsv(b.PlannedDestinationPath),
-                EscapeCsv(b.Reason),
+                CsvSanitizer.EscapeCsv(b.BatchName),
+                CsvSanitizer.EscapeCsv(b.SourcePath),
+                CsvSanitizer.EscapeCsv(b.PlannedDestinationPath),
+                CsvSanitizer.EscapeCsv(b.Reason),
                 b.EstimatedSizeBytes,
                 b.EstimatedFileCount,
                 b.IsVerified));
@@ -181,10 +209,13 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             previewSb.AppendLine($"Write-Host ('--- [PREVIEW ONLY] Processing Batch: ' + '{escapedBatchName}' + ' ---') -ForegroundColor Cyan");
             previewSb.AppendLine($"$src = '{escapedSrc}'");
             previewSb.AppendLine($"$dst = '{escapedDst}'");
+            previewSb.AppendLine("# Prevent robocopy CLI parser treating a trailing backslash as escaping the wrapping quote");
+            previewSb.AppendLine("$safeSrc = if ($src.EndsWith('\\') -and -not $src.EndsWith(':\\')) { $src.TrimEnd('\\') } elseif ($src.EndsWith(':\\')) { $src + '.' } else { $src }");
+            previewSb.AppendLine("$safeDst = if ($dst.EndsWith('\\') -and -not $dst.EndsWith(':\\')) { $dst.TrimEnd('\\') } elseif ($dst.EndsWith(':\\')) { $dst + '.' } else { $dst }");
             previewSb.AppendLine($"$log = Join-Path $logDir 'preview-{escapedCleanName}.log'");
             previewSb.AppendLine("if (Test-Path $src) {");
             previewSb.AppendLine("    # Robocopy /L = List only (no file copy occurs)");
-            previewSb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /L /NP /R:1 /W:1 /LOG+:$log");
+            previewSb.AppendLine("    robocopy $safeSrc $safeDst /E /COPY:DAT /XJ /L /NP /R:1 /W:1 /LOG+:$log");
             previewSb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
             previewSb.AppendLine($"        throw ('Robocopy preview failed with exit code ' + $LASTEXITCODE + ' for batch ''' + '{escapedBatchName}' + '''. Check log: ' + $log)");
             previewSb.AppendLine("    }");
@@ -224,10 +255,13 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             copySb.AppendLine($"Write-Host ('>>> Starting Copy for Batch: ' + '{escapedBatchName}' + ' >>>') -ForegroundColor Yellow");
             copySb.AppendLine($"$src = '{escapedSrc}'");
             copySb.AppendLine($"$dst = '{escapedDst}'");
+            copySb.AppendLine("# Prevent robocopy CLI parser treating a trailing backslash as escaping the wrapping quote");
+            copySb.AppendLine("$safeSrc = if ($src.EndsWith('\\') -and -not $src.EndsWith(':\\')) { $src.TrimEnd('\\') } elseif ($src.EndsWith(':\\')) { $src + '.' } else { $src }");
+            copySb.AppendLine("$safeDst = if ($dst.EndsWith('\\') -and -not $dst.EndsWith(':\\')) { $dst.TrimEnd('\\') } elseif ($dst.EndsWith(':\\')) { $dst + '.' } else { $dst }");
             copySb.AppendLine($"$log = Join-Path $logDir 'copy-{escapedCleanName}.log'");
             copySb.AppendLine("if (Test-Path $src) {");
             copySb.AppendLine("    # Copy with data, attributes, timestamps. Safe retries, skip junctions.");
-            copySb.AppendLine("    robocopy $src $dst /E /COPY:DAT /XJ /NP /R:2 /W:3 /LOG+:$log");
+            copySb.AppendLine("    robocopy $safeSrc $safeDst /E /COPY:DAT /XJ /NP /R:2 /W:3 /LOG+:$log");
             copySb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
             copySb.AppendLine($"        throw ('Robocopy copy failed with exit code ' + $LASTEXITCODE + ' for batch ''' + '{escapedBatchName}' + '''. Check log: ' + $log)");
             copySb.AppendLine("    }");
@@ -393,28 +427,56 @@ public sealed class ArchivePlannerService : IArchivePlannerService
     {
         if (string.IsNullOrEmpty(value)) return string.Empty;
         var sanitized = value.Replace("\r", " ").Replace("\n", " ");
-        return sanitized.Replace("'", "''");
+        // PowerShell parser treats ASCII single-quote (') and Unicode single-quotes (‘, ’, ‚, ‛) as quote delimiters
+        return sanitized
+            .Replace("'", "''")
+            .Replace("‘", "‘‘")
+            .Replace("’", "’’")
+            .Replace("‚", "‚‚")
+            .Replace("‛", "‛‛");
     }
 
-    private static string SanitizeIdentifier(string name)
+    public static string SanitizeIdentifier(string name)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var sb = new StringBuilder();
         foreach (var c in name)
         {
-            // Strip invalid filename characters, spaces, and PowerShell meta-characters (', ;, #, `, $)
-            sb.Append(invalid.Contains(c) || c == ' ' || c == '\'' || c == ';' || c == '#' || c == '`' || c == '$' ? '_' : c);
+            // Strip invalid filename characters, spaces, and PowerShell quote & meta-characters (ASCII and Unicode)
+            var isDangerous = invalid.Contains(c) ||
+                              c == ' ' ||
+                              c == '\'' || c == '‘' || c == '’' || c == '‚' || c == '‛' ||
+                              c == '"' || c == '“' || c == '”' || c == '„' ||
+                              c == ';' || c == '#' || c == '`' || c == '$';
+            sb.Append(isDangerous ? '_' : c);
         }
         return sb.ToString();
     }
 
-    private static string EscapeCsv(string value)
+    public static void ValidatePathsDoNotOverlap(string source, string destination)
     {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destination);
+
+        var sep = Path.DirectorySeparatorChar.ToString();
+        var altSep = Path.AltDirectorySeparatorChar.ToString();
+
+        var srcNorm = source.Replace(altSep, sep).TrimEnd(Path.DirectorySeparatorChar) + sep;
+        var dstNorm = destination.Replace(altSep, sep).TrimEnd(Path.DirectorySeparatorChar) + sep;
+
+        if (string.Equals(srcNorm, dstNorm, StringComparison.OrdinalIgnoreCase))
         {
-            return $"\"{value.Replace("\"", "\"\"")}\"";
+            throw new InvalidOperationException("Source and Destination cannot be the exact same directory.");
         }
-        return value;
+
+        if (dstNorm.StartsWith(srcNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Destination directory cannot be nested inside the source directory.");
+        }
+
+        if (srcNorm.StartsWith(dstNorm, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Source directory cannot be nested inside the destination directory.");
+        }
     }
 }

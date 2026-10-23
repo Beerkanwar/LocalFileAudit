@@ -82,6 +82,9 @@ public partial class App : Application
             var configService = _host.Services.GetRequiredService<IConfigurationService>();
             await configService.LoadAsync();
 
+            var loggerProvider = _host.Services.GetService<FileLoggerProvider>();
+            loggerProvider?.ApplyConfiguration(configService.Current.Logging);
+
             // Ensure SQLite database schema and WAL mode are initialized
             var dbInit = _host.Services.GetRequiredService<IDatabaseInitializer>();
             await dbInit.InitializeAsync();

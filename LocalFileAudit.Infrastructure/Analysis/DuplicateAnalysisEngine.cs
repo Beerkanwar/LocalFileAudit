@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
+using LocalFileAudit.Infrastructure.Scanning;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
@@ -62,9 +63,15 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
 
         cmd.CommandText = @"
             SELECT * FROM Files
-            WHERE ScanRunId = @ScanRunId AND SizeBytes IN (
+            WHERE ScanRunId = @ScanRunId
+              AND MetadataStatus = 'Ok'
+              AND (Attributes & 1024) = 0
+              AND SizeBytes IN (
                 SELECT SizeBytes FROM Files
-                WHERE ScanRunId = @ScanRunId AND SizeBytes >= @MinSizeBytes
+                WHERE ScanRunId = @ScanRunId
+                  AND MetadataStatus = 'Ok'
+                  AND (Attributes & 1024) = 0
+                  AND SizeBytes >= @MinSizeBytes
                 GROUP BY SizeBytes HAVING COUNT(1) >= 2
             )
             ORDER BY SizeBytes DESC, FullPath ASC;
@@ -116,59 +123,69 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
             .SelectMany(g => g.Files)
             .ToList();
 
-        _logger.LogInformation("Stage 2 duplicate detection: Computing SHA-256 hashes for {Count} candidate files in scan {ScanRunId}", filesToHash.Count, scanRunId);
+        _logger.LogInformation("Stage 2 duplicate detection: Computing SHA-256 hashes for {Count} candidate files in parallel for scan {ScanRunId}", filesToHash.Count, scanRunId);
 
         int processed = 0;
         long totalBytesHashed = 0;
-        var hashedFiles = new List<FileRecord>();
+        var hashedFiles = new System.Collections.Concurrent.ConcurrentBag<FileRecord>();
+        var maxConcurrency = Math.Clamp(System.Environment.ProcessorCount, 2, 8);
+        using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
 
-        foreach (var file in filesToHash)
+        var hashTasks = filesToHash.Select(async file =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            string? hash = file.HashValue;
-
-            // Compute hash if not already cached
-            if (string.IsNullOrEmpty(hash) || file.HashAlgorithm != "SHA-256")
+            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                // Feature S3: Check if any previous run stored a hash for the same (FullPath, SizeBytes, LastWriteTimeUtc)
-                var existingHash = await _repository.FindExistingFileHashAsync(file.FullPath, file.SizeBytes, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(existingHash))
+                string? hash = file.HashValue;
+
+                // Compute hash if not already cached
+                if (string.IsNullOrEmpty(hash) || file.HashAlgorithm != "SHA-256")
                 {
-                    hash = existingHash;
-                    file.HashAlgorithm = "SHA-256";
-                    file.HashValue = hash;
-                    await _repository.UpdateFileHashAsync(file.Id, "SHA-256", hash, cancellationToken).ConfigureAwait(false);
-                    _logger.LogDebug("Reused existing SHA-256 hash for {FullPath} from prior scan run.", file.FullPath);
-                }
-                else
-                {
-                    hash = await ComputeSha256SafeAsync(file.FullPath, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(hash))
+                    // Feature S3: Check if any previous run stored a hash for the same (FullPath, SizeBytes, LastWriteTimeUtc)
+                    var existingHash = await _repository.FindExistingFileHashAsync(file.FullPath, file.SizeBytes, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(existingHash))
                     {
+                        hash = existingHash;
                         file.HashAlgorithm = "SHA-256";
                         file.HashValue = hash;
                         await _repository.UpdateFileHashAsync(file.Id, "SHA-256", hash, cancellationToken).ConfigureAwait(false);
+                        _logger.LogDebug("Reused existing SHA-256 hash for {FullPath} from prior scan run.", file.FullPath);
+                    }
+                    else
+                    {
+                        hash = await ComputeSha256SafeAsync(file.FullPath, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
+                        if (!string.IsNullOrEmpty(hash))
+                        {
+                            file.HashAlgorithm = "SHA-256";
+                            file.HashValue = hash;
+                            await _repository.UpdateFileHashAsync(file.Id, "SHA-256", hash, cancellationToken).ConfigureAwait(false);
+                        }
                     }
                 }
+
+                var done = Interlocked.Increment(ref processed);
+                var bytes = Interlocked.Add(ref totalBytesHashed, file.SizeBytes);
+
+                progress?.Report(new HashJobProgress
+                {
+                    FilesProcessed = done,
+                    TotalFilesToHash = filesToHash.Count,
+                    BytesHashed = bytes,
+                    CurrentFilePath = file.FullPath
+                });
+
+                if (!string.IsNullOrEmpty(hash))
+                {
+                    hashedFiles.Add(file);
+                }
             }
-
-            processed++;
-            totalBytesHashed += file.SizeBytes;
-
-            progress?.Report(new HashJobProgress
+            finally
             {
-                FilesProcessed = processed,
-                TotalFilesToHash = filesToHash.Count,
-                BytesHashed = totalBytesHashed,
-                CurrentFilePath = file.FullPath
-            });
-
-            if (!string.IsNullOrEmpty(hash))
-            {
-                hashedFiles.Add(file);
+                semaphore.Release();
             }
-        }
+        });
+
+        await Task.WhenAll(hashTasks).ConfigureAwait(false);
 
         // Group by Size AND SHA-256 Hash
         var verifiedGroups = hashedFiles
@@ -208,11 +225,20 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
                 return null;
             }
 
+            // Exclude reparse points, junctions, and cloud placeholders to prevent downloading cloud files
+            var attr = File.GetAttributes(fullPath);
+            if ((attr & FileAttributes.ReparsePoint) != 0 || FilesystemScanner.IsCloudPlaceholder(attr))
+            {
+                _logger.LogWarning("Skipping cloud placeholder or reparse point file from hashing: {Path}", fullPath);
+                return null;
+            }
+
             // Check pre-hash timestamp
             var preModified = File.GetLastWriteTimeUtc(fullPath);
             if (expectedLastWriteUtc.HasValue && Math.Abs((preModified - expectedLastWriteUtc.Value).TotalSeconds) > 2)
             {
-                _logger.LogWarning("File modified since scan: {Path}. Marking hash as unverified.", fullPath);
+                _logger.LogWarning("File modified since scan: {Path}. Discarding hash for safety.", fullPath);
+                return null;
             }
 
             byte[] hashBytes;
@@ -258,7 +284,7 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
             LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
             Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
             ObservedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
-            MetadataStatus = Enum.Parse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true),
+            MetadataStatus = Enum.TryParse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true, out var ms) ? ms : ScanMetadataStatus.Ok,
             HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
             HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))
         };

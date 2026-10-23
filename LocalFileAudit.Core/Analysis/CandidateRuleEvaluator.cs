@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using LocalFileAudit.Core.Configuration;
 using LocalFileAudit.Core.Models;
 
@@ -7,7 +8,7 @@ namespace LocalFileAudit.Core.Analysis;
 /// Deterministic, explainable rule evaluator.
 /// Classifies files into decision-support categories without automatic mutation.
 /// </summary>
-public static class CandidateRuleEvaluator
+public static partial class CandidateRuleEvaluator
 {
     private static readonly HashSet<string> MediaAndArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -125,7 +126,7 @@ public static class CandidateRuleEvaluator
         }
 
         // 5. Inactive Installer in Downloads Rule
-        if (InstallerExtensions.Contains(ext) && path.Contains(@"\Downloads\", StringComparison.OrdinalIgnoreCase) && file.LastWriteTimeUtc.HasValue)
+        if (InstallerExtensions.Contains(ext) && IsUserDownloadsPath(path) && file.LastWriteTimeUtc.HasValue)
         {
             var ageDays = (now - file.LastWriteTimeUtc.Value).TotalDays;
             if (ageDays >= 90)
@@ -166,12 +167,53 @@ public static class CandidateRuleEvaluator
         };
     }
 
+    [GeneratedRegex(@"^(?:[a-zA-Z]:|\\\\[^\\]+\\[^\\]+)?\\Users\\[^\\]+\\Downloads(?:\\[^\r\n]*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
+    private static partial Regex UserDownloadsPattern();
+
     private static bool IsProtectedPath(string path)
     {
-        return path.Contains(@"\Windows\", StringComparison.OrdinalIgnoreCase) ||
-               path.Contains(@"\Program Files\", StringComparison.OrdinalIgnoreCase) ||
-               path.Contains(@"\Program Files (x86)\", StringComparison.OrdinalIgnoreCase) ||
-               path.Contains(@"\System Volume Information\", StringComparison.OrdinalIgnoreCase) ||
-               path.Contains(@"\$Recycle.Bin\", StringComparison.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(path)) return false;
+
+        var normalized = path.Replace('/', '\\');
+
+        string pathWithoutRoot = normalized;
+        if (normalized.Length >= 3 && char.IsLetter(normalized[0]) && normalized[1] == ':' && normalized[2] == '\\')
+        {
+            pathWithoutRoot = normalized.Substring(3);
+        }
+        else if (normalized.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            var firstSlash = normalized.IndexOf('\\', 2);
+            if (firstSlash >= 0)
+            {
+                var secondSlash = normalized.IndexOf('\\', firstSlash + 1);
+                if (secondSlash >= 0)
+                {
+                    pathWithoutRoot = normalized.Substring(secondSlash + 1);
+                }
+            }
+        }
+        else if (normalized.StartsWith('\\'))
+        {
+            pathWithoutRoot = normalized.TrimStart('\\');
+        }
+
+        return pathWithoutRoot.StartsWith(@"Windows\", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(pathWithoutRoot, "Windows", StringComparison.OrdinalIgnoreCase) ||
+               pathWithoutRoot.StartsWith(@"Program Files\", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(pathWithoutRoot, "Program Files", StringComparison.OrdinalIgnoreCase) ||
+               pathWithoutRoot.StartsWith(@"Program Files (x86)\", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(pathWithoutRoot, "Program Files (x86)", StringComparison.OrdinalIgnoreCase) ||
+               pathWithoutRoot.StartsWith(@"System Volume Information\", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(pathWithoutRoot, "System Volume Information", StringComparison.OrdinalIgnoreCase) ||
+               pathWithoutRoot.StartsWith(@"$Recycle.Bin\", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(pathWithoutRoot, "$Recycle.Bin", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsUserDownloadsPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        var normalized = path.Replace('/', '\\');
+        return UserDownloadsPattern().IsMatch(normalized);
     }
 }

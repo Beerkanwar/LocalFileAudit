@@ -78,7 +78,7 @@ public sealed class OllamaClient : IOllamaClient
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
 
-            using var response = await _httpClient.SendAsync(request, timeoutCts.Token).ConfigureAwait(false);
+            using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
             sw.Stop();
 
             if (!response.IsSuccessStatusCode)
@@ -92,7 +92,7 @@ public sealed class OllamaClient : IOllamaClient
                 };
             }
 
-            var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            var json = await ReadBoundedStringAsync(response.Content, 1024 * 1024, cancellationToken).ConfigureAwait(false);
             var models = ParseModelsFromJson(json);
 
             return new AiConnectionStatus
@@ -143,10 +143,11 @@ public sealed class OllamaClient : IOllamaClient
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-        using var response = await _httpClient.GetAsync($"{baseUri}/api/tags", timeoutCts.Token).ConfigureAwait(false);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUri}/api/tags");
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        var json = await response.Content.ReadAsStringAsync(timeoutCts.Token).ConfigureAwait(false);
+        var json = await ReadBoundedStringAsync(response.Content, 1024 * 1024, timeoutCts.Token).ConfigureAwait(false);
         return ParseModelsFromJson(json);
     }
 
@@ -189,31 +190,18 @@ public sealed class OllamaClient : IOllamaClient
         _logger.LogInformation("Sending inference request to Ollama model {Model} at {Endpoint} (Timeout: {Timeout}s)", model, endpoint, timeoutSeconds);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        HttpResponseMessage response;
         try
         {
-            response = await _httpClient.PostAsync($"{baseUri}/api/generate", content, linkedCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            var elapsedSec = (int)Math.Round(sw.Elapsed.TotalSeconds);
-            _logger.LogWarning("Ollama inference timed out after {Elapsed}s (configured limit: {Timeout}s)", elapsedSec, timeoutSeconds);
-            throw new TimeoutException($"Ollama inference timed out after {elapsedSec}s (configured limit: {timeoutSeconds}s) while generating response from model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
-        }
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUri}/api/generate") { Content = content };
+            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, linkedCts.Token).ConfigureAwait(false);
 
-        using (response)
-        {
             if (!response.IsSuccessStatusCode)
             {
-                var errText = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+                var errText = await ReadBoundedStringAsync(response.Content, 64 * 1024, linkedCts.Token).ConfigureAwait(false);
                 throw new HttpRequestException($"Ollama inference failed with HTTP {(int)response.StatusCode}: {errText}");
             }
 
-            var responseString = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
-            if (responseString.Length > MaxResponseSizeBytes)
-            {
-                throw new InvalidOperationException($"Ollama response exceeded maximum allowable buffer of {MaxResponseSizeBytes} bytes ({responseString.Length} bytes received).");
-            }
+            var responseString = await ReadBoundedStringAsync(response.Content, MaxResponseSizeBytes, linkedCts.Token).ConfigureAwait(false);
 
             using var doc = JsonDocument.Parse(responseString);
             var root = doc.RootElement;
@@ -246,6 +234,12 @@ public sealed class OllamaClient : IOllamaClient
             }
 
             return responseText;
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            var elapsedSec = (int)Math.Round(sw.Elapsed.TotalSeconds);
+            _logger.LogWarning("Ollama inference timed out after {Elapsed}s (configured limit: {Timeout}s)", elapsedSec, timeoutSeconds);
+            throw new TimeoutException($"Ollama inference timed out after {elapsedSec}s (configured limit: {timeoutSeconds}s) while generating response from model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
         }
     }
 
@@ -298,31 +292,18 @@ public sealed class OllamaClient : IOllamaClient
             model, endpoint, messagesList.Count);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        HttpResponseMessage response;
         try
         {
-            response = await _httpClient.PostAsync($"{baseUri}/api/chat", content, linkedCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            var elapsedSec = (int)Math.Round(sw.Elapsed.TotalSeconds);
-            _logger.LogWarning("Ollama chat timed out after {Elapsed}s (configured limit: {Timeout}s)", elapsedSec, timeoutSeconds);
-            throw new TimeoutException($"Ollama chat timed out after {elapsedSec}s (configured limit: {timeoutSeconds}s) while waiting for model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
-        }
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUri}/api/chat") { Content = content };
+            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, linkedCts.Token).ConfigureAwait(false);
 
-        using (response)
-        {
             if (!response.IsSuccessStatusCode)
             {
-                var errText = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+                var errText = await ReadBoundedStringAsync(response.Content, 64 * 1024, linkedCts.Token).ConfigureAwait(false);
                 throw new HttpRequestException($"Ollama chat failed with HTTP {(int)response.StatusCode}: {errText}");
             }
 
-            var responseString = await response.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
-            if (responseString.Length > MaxResponseSizeBytes)
-            {
-                throw new InvalidOperationException($"Ollama chat response exceeded maximum allowable buffer of {MaxResponseSizeBytes} bytes.");
-            }
+            var responseString = await ReadBoundedStringAsync(response.Content, MaxResponseSizeBytes, linkedCts.Token).ConfigureAwait(false);
 
             using var doc = JsonDocument.Parse(responseString);
             if (doc.RootElement.TryGetProperty("message", out var messageProp) &&
@@ -339,6 +320,31 @@ public sealed class OllamaClient : IOllamaClient
 
             return string.Empty;
         }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            var elapsedSec = (int)Math.Round(sw.Elapsed.TotalSeconds);
+            _logger.LogWarning("Ollama chat timed out after {Elapsed}s (configured limit: {Timeout}s)", elapsedSec, timeoutSeconds);
+            throw new TimeoutException($"Ollama chat timed out after {elapsedSec}s (configured limit: {timeoutSeconds}s) while waiting for model '{model}'. You can increase the AI Response Timeout in Settings.", ex);
+        }
+    }
+
+    private static async Task<string> ReadBoundedStringAsync(HttpContent content, int maxBytes, CancellationToken cancellationToken)
+    {
+        await using var stream = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var ms = new MemoryStream();
+        var buffer = new byte[8192];
+        int totalRead = 0;
+        int read;
+        while ((read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false)) > 0)
+        {
+            totalRead += read;
+            if (totalRead > maxBytes)
+            {
+                throw new InvalidOperationException($"Response exceeded maximum allowable size limit of {maxBytes} bytes.");
+            }
+            ms.Write(buffer, 0, read);
+        }
+        return Encoding.UTF8.GetString(ms.ToArray());
     }
 
     private static IReadOnlyList<string> ParseModelsFromJson(string json)

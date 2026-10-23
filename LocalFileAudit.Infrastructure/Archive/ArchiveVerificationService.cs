@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using Microsoft.Extensions.Logging;
 
@@ -66,7 +67,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
 
         // 1. Enumerate source files (Skipping junctions/reparse points to avoid runaway loops & phantom missing files)
         var sourceFiles = new Dictionary<string, (string FullPath, long SizeBytes)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in EnumerateFilesSafeNoReparse(fullSource, _logger, cancellationToken))
+        foreach (var file in EnumerateFilesSafeNoReparse(fullSource, _logger, summary.EnumerationErrors, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -80,6 +81,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to inspect source file {Path}", file);
+                summary.EnumerationErrors.Add($"Source file '{file}': {ex.Message}");
             }
         }
 
@@ -87,7 +89,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
 
         // 2. Enumerate destination files (Skipping junctions/reparse points)
         var destFiles = new Dictionary<string, (string FullPath, long SizeBytes)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var file in EnumerateFilesSafeNoReparse(fullDest, _logger, cancellationToken))
+        foreach (var file in EnumerateFilesSafeNoReparse(fullDest, _logger, summary.EnumerationErrors, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
@@ -101,7 +103,14 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to inspect destination file {Path}", file);
+                summary.EnumerationErrors.Add($"Destination file '{file}': {ex.Message}");
             }
+        }
+
+        if (summary.EnumerationErrors.Count > 0)
+        {
+            summary.IsPartial = true;
+            _logger.LogWarning("Archive verification encountered {Count} unreadable items. Marking verification as PARTIAL.", summary.EnumerationErrors.Count);
         }
 
         progress?.Report(50.0);
@@ -184,7 +193,12 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
                     item.SourceHash = await srcHashTask;
                     item.DestinationHash = await dstHashTask;
 
-                    if (!string.Equals(item.SourceHash, item.DestinationHash, StringComparison.OrdinalIgnoreCase))
+                    if (string.IsNullOrEmpty(item.SourceHash) || string.IsNullOrEmpty(item.DestinationHash))
+                    {
+                        item.Status = VerificationStatus.HashError;
+                        item.Details = $"Hash read error: Source={(item.SourceHash != null ? "Ok" : "Failed")}, Dest={(item.DestinationHash != null ? "Ok" : "Failed")}. Content cannot be verified.";
+                    }
+                    else if (!string.Equals(item.SourceHash, item.DestinationHash, StringComparison.OrdinalIgnoreCase))
                     {
                         item.Status = VerificationStatus.HashMismatch;
                         item.Details = "Hash mismatch: File sizes match, but byte content diverges.";
@@ -211,6 +225,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             // Re-aggregate counts based on hash verification results
             summary.MatchCount = summary.Items.Count(i => i.Status == VerificationStatus.Match);
             summary.HashMismatchCount = summary.Items.Count(i => i.Status == VerificationStatus.HashMismatch);
+            summary.HashErrorCount = summary.Items.Count(i => i.Status == VerificationStatus.HashError);
         }
         else
         {
@@ -219,13 +234,17 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
 
         sw.Stop();
         summary.Duration = sw.Elapsed;
-        _logger.LogInformation("Archive verification complete in {Elapsed}ms. Matches={Matches}, Missing={Missing}, SizeMismatches={SizeMis}, HashMismatches={HashMis}, Extra={Extra}",
-            sw.ElapsedMilliseconds, summary.MatchCount, summary.MissingCount, summary.SizeMismatchCount, summary.HashMismatchCount, summary.ExtraCount);
+        _logger.LogInformation("Archive verification complete in {Elapsed}ms. Matches={Matches}, Missing={Missing}, SizeMismatches={SizeMis}, HashMismatches={HashMis}, HashErrors={HashErrors}, Extra={Extra}, Partial={Partial}",
+            sw.ElapsedMilliseconds, summary.MatchCount, summary.MissingCount, summary.SizeMismatchCount, summary.HashMismatchCount, summary.HashErrorCount, summary.ExtraCount, summary.IsPartial);
 
         return summary;
     }
 
-    private static IEnumerable<string> EnumerateFilesSafeNoReparse(string rootDirectory, ILogger logger, CancellationToken cancellationToken)
+    private static IEnumerable<string> EnumerateFilesSafeNoReparse(
+        string rootDirectory,
+        ILogger logger,
+        List<string> errorList,
+        CancellationToken cancellationToken)
     {
         var stack = new Stack<string>();
         stack.Push(rootDirectory);
@@ -243,6 +262,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to enumerate files in directory {Directory}", currentDir);
+                errorList.Add($"Files in '{currentDir}': {ex.Message}");
                 continue;
             }
 
@@ -259,6 +279,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Failed to enumerate subdirectories in {Directory}", currentDir);
+                errorList.Add($"Subdirectories in '{currentDir}': {ex.Message}");
                 continue;
             }
 
@@ -277,6 +298,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
                 catch (Exception ex)
                 {
                     logger.LogWarning(ex, "Failed to inspect directory attributes for {Directory}", subdir);
+                    errorList.Add($"Directory attributes '{subdir}': {ex.Message}");
                 }
             }
         }
@@ -305,16 +327,21 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 16384, useAsync: true))
             await using (var writer = new StreamWriter(stream, Encoding.UTF8))
             {
+                if (summary.IsPartial)
+                {
+                    await writer.WriteLineAsync("# WARNING: Archive verification was PARTIAL. Unreadable files or directories were encountered. Do NOT delete original source files.");
+                }
+
                 await writer.WriteLineAsync("Status,RelativePath,SourceSizeBytes,DestinationSizeBytes,SourceHash,DestinationHash,Details,SourceFullPath,DestinationFullPath");
 
                 foreach (var item in summary.Items)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var escapedRel = EscapeCsv(item.RelativePath);
-                    var escapedDetails = EscapeCsv(item.Details);
-                    var escapedSrc = EscapeCsv(item.SourceFullPath);
-                    var escapedDst = EscapeCsv(item.DestinationFullPath);
+                    var escapedRel = CsvSanitizer.EscapeCsv(item.RelativePath);
+                    var escapedDetails = CsvSanitizer.EscapeCsv(item.Details);
+                    var escapedSrc = CsvSanitizer.EscapeCsv(item.SourceFullPath);
+                    var escapedDst = CsvSanitizer.EscapeCsv(item.DestinationFullPath);
 
                     var line = string.Format(
                         System.Globalization.CultureInfo.InvariantCulture,
@@ -373,29 +400,20 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
         }
     }
 
-    private static async Task<string> ComputeFileSha256ReadOnlyAsync(string filePath, CancellationToken cancellationToken)
+    private async Task<string?> ComputeFileSha256ReadOnlyAsync(string filePath, CancellationToken cancellationToken)
     {
         try
         {
-            // Strictly FileAccess.Read, FileShare.ReadWrite to ensure zero write/locking contention
-            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536, useAsync: true);
+            // Strictly FileAccess.Read, FileShare.Read to ensure read-only safety
+            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, useAsync: true);
             using var sha = SHA256.Create();
             var hashBytes = await sha.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
             return Convert.ToHexString(hashBytes).ToLowerInvariant();
         }
         catch (Exception ex)
         {
-            return $"ERROR({ex.GetType().Name})";
+            _logger.LogWarning(ex, "Failed to compute SHA-256 for file {FilePath}", filePath);
+            return null;
         }
-    }
-
-    private static string EscapeCsv(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return string.Empty;
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
-        {
-            return $"\"{value.Replace("\"", "\"\"")}\"";
-        }
-        return value;
     }
 }

@@ -32,6 +32,10 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IOllamaClient, LocalFileAudit.Infrastructure.AI.OllamaClient>(client =>
         {
             client.Timeout = Timeout.InfiniteTimeSpan;
+        })
+        .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false
         });
         services.AddSingleton<IAiAnalysisService, LocalFileAudit.Infrastructure.AI.AiAnalysisService>();
 

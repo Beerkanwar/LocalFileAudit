@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.11] - 2026-10-23
+
+### Security & Hardening Remediation
+- **PowerShell Script Injection Hardening (High 1):**
+  - Updated `ArchivePlannerService.EscapePowerShellSingleQuotedLiteral` to escape ASCII single quotes `'` and all PowerShell Unicode single-quote delimiters: left single quotation mark `‘` (U+2018), right single quotation mark `’` (U+2019), single low-9 quotation mark `‚` (U+201A), and single high-reversed-9 quotation mark `‛` (U+201B).
+  - Hardened `SanitizeIdentifier` to strip shell metacharacters (`;`, `$`, `` ` ``, quotes).
+  - Resolved robocopy trailing backslash issue: paths ending in `\` (such as `D:\`) are mapped to `$safeSrc`/`$safeDst` (`D:\.`) to prevent escaping robocopy parameter quotes.
+  - Added `ValidatePathsDoNotOverlap` enforcing that destination cannot be nested inside source or identical to source.
+  - Backs up corrupted `archive-plans.json` to `.corrupted.<timestamp>.bak` before resetting state.
+- **Archive Verification Safety (High 2 & Medium 8):**
+  - Updated `ArchiveVerificationService`: hash calculation failures return `null` instead of error strings.
+  - Added `VerificationStatus.HashError`: if either source or destination hashing fails, status is `HashError` and is strictly never counted as a match.
+  - Added `IsPartial` flag and `EnumerationErrors` collection to `VerificationSummary` so unreadable directories are prominently surfaced in UI and tagged with `# WARNING` in CSV exports.
+  - Aligned file streaming in verifier to `FileAccess.Read, FileShare.Read` matching SECURITY.md.
+- **Directory Checkpoints & Durability (High 3, Medium 4 & Medium 5):**
+  - Fixed directory ID persistence in `SqliteScanRepository.InsertDirectoryBatchAsync` using `ON CONFLICT(ScanRunId, Path) DO UPDATE ... RETURNING Id`, ensuring generated IDs are written back to memory records.
+  - Added unique index `idx_dirs_scan_path_unique` on `Directories(ScanRunId, Path)` to guarantee checkpoint idempotency on scan resumption.
+  - In `FilesystemScanner`: directory checkpoints are sequenced in FIFO order with file persistence items, flushing buffered files before marking a directory `Completed` or `Error`.
+  - Prevented scanner deadlocks: bounded channel cancellation triggers immediately if consumer faults, ensuring background worker threads terminate and final scan status is cleanly saved as `Failed` or `Cancelled`.
+- **Cloud Hydration Prevention & Duplicate Optimization (Medium 6 & Medium 7):**
+  - Filtered Stage 1 duplicate candidate queries to `MetadataStatus = 'Ok'` and non-reparse points `(Attributes & 1024) = 0`.
+  - Filtered Stage 2 hashing to skip reparse points and OneDrive placeholders without hydrating offline files.
+  - Added database index on `Files(FullPath, SizeBytes)` for fast lookups.
+  - Parallelized Stage 2 SHA-256 hashing using bounded concurrency (`Math.Clamp(ProcessorCount, 2, 8)`).
+- **AI Data Minimization & Output Validation (Medium 9 & Medium 10):**
+  - Redacted `SelectedDrives` roots and masked personal user profile folders in `PathRedactor` across drive letters, forward/backward slashes, and UNC paths.
+  - Redacted candidate context filenames and scanned roots in chat when `RedactFilePaths` is enabled.
+  - Added category validation in `AiAnalysisService.ValidateAndParseResponse` against `CandidateCategory` enum, defaulting unknown/hallucinated categories to `Investigate`.
+  - Escaped all table cells with `EscapeMarkdownTableCell` in Markdown reports and exported tables to prevent layout breakage and link/image injection.
+- **Configuration Safety & Recovery (Medium 11):**
+  - `JsonConfigurationService`: Automatically backs up corrupted or unparseable `config.json` files to `.corrupted.<timestamp>.bak` before falling back to defaults.
+  - `ConfigurationValidator`: Enforces absolute URI and `http`/`https` scheme even when `RequireLocalEndpoint = false`.
+- **Scan Roots Delimiter & Anchored Path Rules (Medium 13 & Medium 14):**
+  - Created `SelectedRootsHelper` using pipe `|` delimiter for scan roots, supporting paths with semicolons and commas without corrupted roll-ups.
+  - Anchored `IsProtectedPath` to root drive (`\Windows\`, `\Program Files\`, etc.) and downloads check to user profile `\Users\<user>\Downloads\`, preventing false positives on dev trees like `D:\Projects\Windows\...`.
+- **Formula Injection Defense & Ollama Bounding (Low Items):**
+  - Consolidated CSV escaping across the application into `CsvSanitizer.EscapeCsv`, prefixing formula characters (`=`, `+`, `-`, `@`, `\t`, `\r`) with single quote `'`.
+  - Set `AllowAutoRedirect = false` on Ollama HTTP client.
+  - Used `ResponseHeadersRead` with bounded streaming (64KB error, 5MB response) and wrapped full requests in timeout exception handling.
+  - Wired `FileLoggerProvider.ApplyConfiguration` with `RedactFilePaths`, `RetainDays`, and `LogLevel`.
+
 ## [1.3.10] - 2026-10-21
 
 ### Fixed

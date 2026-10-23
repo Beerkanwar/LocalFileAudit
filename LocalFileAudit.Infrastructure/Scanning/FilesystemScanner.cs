@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -14,6 +15,10 @@ namespace LocalFileAudit.Infrastructure.Scanning;
 /// </summary>
 public sealed class FilesystemScanner : IScanEngine
 {
+    private abstract record PersistenceItem;
+    private sealed record FilePersistenceItem(FileRecord File) : PersistenceItem;
+    private sealed record DirectoryCheckpointItem(long DirectoryId, DirectoryState State, int FilesProcessed, string? LastError) : PersistenceItem;
+
     private readonly IScanRepository _repository;
     private readonly IConfigurationService _configurationService;
     private readonly ILogger<FilesystemScanner> _logger;
@@ -83,23 +88,24 @@ public sealed class FilesystemScanner : IScanEngine
             _pauseEvent.Set();
         }
 
-        var config = _configurationService.Current;
-        var targets = ResolveTargetRoots(target);
-
-        var run = new ScanRun
-        {
-            Id = Guid.NewGuid(),
-            StartTimeUtc = DateTime.UtcNow,
-            Status = ScanState.InProgress,
-            SelectedDrives = string.Join(";", targets),
-            ConfigurationSnapshot = JsonSerializer.Serialize(config),
-            ApplicationVersion = LocalFileAudit.Core.Common.AppVersion.Current
-        };
-
-        _logger.LogInformation("Starting new scan {ScanRunId} targeting roots: {Roots}", run.Id, run.SelectedDrives);
-
+        ScanRun? run = null;
         try
         {
+            var config = _configurationService.Current;
+            var targets = ResolveTargetRoots(target);
+
+            run = new ScanRun
+            {
+                Id = Guid.NewGuid(),
+                StartTimeUtc = DateTime.UtcNow,
+                Status = ScanState.InProgress,
+                SelectedDrives = SelectedRootsHelper.JoinRoots(targets),
+                ConfigurationSnapshot = JsonSerializer.Serialize(config),
+                ApplicationVersion = LocalFileAudit.Core.Common.AppVersion.Current
+            };
+
+            _logger.LogInformation("Starting new scan {ScanRunId} targeting roots: {Roots}", run.Id, run.SelectedDrives);
+
             if (cancellationToken.IsCancellationRequested)
             {
                 run.Status = ScanState.Cancelled;
@@ -134,11 +140,15 @@ public sealed class FilesystemScanner : IScanEngine
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("Scan {ScanRunId} was cancelled during initialization.", run.Id);
-            run.Status = ScanState.Cancelled;
-            run.EndTimeUtc = DateTime.UtcNow;
-            await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, run.FilesDiscovered, run.DirectoriesCompleted, run.ErrorCount, CancellationToken.None).ConfigureAwait(false);
-            return run;
+            if (run != null)
+            {
+                _logger.LogWarning("Scan {ScanRunId} was cancelled during initialization.", run.Id);
+                run.Status = ScanState.Cancelled;
+                run.EndTimeUtc = DateTime.UtcNow;
+                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, run.FilesDiscovered, run.DirectoriesCompleted, run.ErrorCount, CancellationToken.None).ConfigureAwait(false);
+                return run;
+            }
+            throw;
         }
         finally
         {
@@ -146,7 +156,10 @@ public sealed class FilesystemScanner : IScanEngine
             {
                 _isRunning = false;
                 _isPaused = false;
-                _currentState = run.Status;
+                if (run != null)
+                {
+                    _currentState = run.Status;
+                }
             }
         }
     }
@@ -234,7 +247,7 @@ public sealed class FilesystemScanner : IScanEngine
         long errorCount = run.ErrorCount;
 
         var directoryQueue = new ConcurrentQueue<DirectoryRecord>(initialDirs);
-        var fileChannel = Channel.CreateBounded<FileRecord>(new BoundedChannelOptions(2000)
+        var persistenceChannel = Channel.CreateBounded<PersistenceItem>(new BoundedChannelOptions(2000)
         {
             FullMode = BoundedChannelFullMode.Wait,
             SingleWriter = false,
@@ -245,33 +258,57 @@ public sealed class FilesystemScanner : IScanEngine
         var lastProgressReport = Stopwatch.StartNew();
         string currentDirectoryDisplay = string.Empty;
 
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var activeWorkers = 0;
+
         // Background batch persistence consumer
         var persistenceTask = Task.Run(async () =>
         {
-            var buffer = new List<FileRecord>(batchSize);
-            while (await fileChannel.Reader.WaitToReadAsync(CancellationToken.None).ConfigureAwait(false))
+            try
             {
-                while (fileChannel.Reader.TryRead(out var fileRecord))
+                var buffer = new List<FileRecord>(batchSize);
+
+                async Task FlushBufferAsync()
                 {
-                    buffer.Add(fileRecord);
-                    if (buffer.Count >= batchSize)
+                    if (buffer.Count > 0)
                     {
                         await _repository.InsertFileBatchAsync(buffer, CancellationToken.None).ConfigureAwait(false);
                         buffer.Clear();
                     }
                 }
-            }
 
-            if (buffer.Count > 0)
+                while (await persistenceChannel.Reader.WaitToReadAsync(CancellationToken.None).ConfigureAwait(false))
+                {
+                    while (persistenceChannel.Reader.TryRead(out var item))
+                    {
+                        if (item is FilePersistenceItem fileItem)
+                        {
+                            buffer.Add(fileItem.File);
+                            if (buffer.Count >= batchSize)
+                            {
+                                await FlushBufferAsync().ConfigureAwait(false);
+                            }
+                        }
+                        else if (item is DirectoryCheckpointItem dirItem)
+                        {
+                            // Ensure all files for directory are durable in SQLite BEFORE directory status is marked
+                            await FlushBufferAsync().ConfigureAwait(false);
+                            await _repository.UpdateDirectoryStatusAsync(dirItem.DirectoryId, dirItem.State, dirItem.FilesProcessed, dirItem.LastError, CancellationToken.None).ConfigureAwait(false);
+                        }
+                    }
+
+                    await FlushBufferAsync().ConfigureAwait(false);
+                }
+
+                await FlushBufferAsync().ConfigureAwait(false);
+            }
+            catch (Exception pEx)
             {
-                await _repository.InsertFileBatchAsync(buffer, CancellationToken.None).ConfigureAwait(false);
-                buffer.Clear();
+                _logger.LogError(pEx, "Batch persistence consumer faulted for scan {ScanRunId}. Cancelling workers.", run.Id);
+                try { linkedCts.Cancel(); } catch { }
+                throw;
             }
         });
-
-        // Worker tasks
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var activeWorkers = 0;
 
         void ReportProgress(ScanState state, string? detail = null)
         {
@@ -305,9 +342,12 @@ public sealed class FilesystemScanner : IScanEngine
                 {
                     _pauseEvent.Wait(linkedCts.Token);
 
-                    if (!directoryQueue.TryDequeue(out var dirRecord))
+                    Interlocked.Increment(ref activeWorkers);
+                    DirectoryRecord? dirRecord;
+                    if (!directoryQueue.TryDequeue(out dirRecord))
                     {
-                        if (Volatile.Read(ref activeWorkers) == 0 && directoryQueue.IsEmpty)
+                        var remaining = Interlocked.Decrement(ref activeWorkers);
+                        if (remaining == 0 && directoryQueue.IsEmpty)
                         {
                             break;
                         }
@@ -316,7 +356,6 @@ public sealed class FilesystemScanner : IScanEngine
                         continue;
                     }
 
-                    Interlocked.Increment(ref activeWorkers);
                     try
                     {
                         currentDirectoryDisplay = dirRecord.Path;
@@ -324,7 +363,7 @@ public sealed class FilesystemScanner : IScanEngine
                             dirRecord,
                             run.Id,
                             target,
-                            fileChannel.Writer,
+                            persistenceChannel.Writer,
                             directoryQueue,
                             () => Interlocked.Increment(ref filesDiscovered),
                             () => Interlocked.Increment(ref errorCount),
@@ -348,7 +387,7 @@ public sealed class FilesystemScanner : IScanEngine
             await Task.WhenAll(workerTasks).ConfigureAwait(false);
             linkedCts.Token.ThrowIfCancellationRequested();
 
-            fileChannel.Writer.Complete();
+            persistenceChannel.Writer.Complete();
             await persistenceTask.ConfigureAwait(false);
 
             run.Status = ScanState.Completed;
@@ -365,8 +404,15 @@ public sealed class FilesystemScanner : IScanEngine
         catch (OperationCanceledException)
         {
             _logger.LogWarning("Scan {ScanRunId} was cancelled by user.", run.Id);
-            fileChannel.Writer.Complete();
-            await persistenceTask.ConfigureAwait(false);
+            persistenceChannel.Writer.TryComplete();
+            try
+            {
+                await persistenceTask.ConfigureAwait(false);
+            }
+            catch (Exception pEx)
+            {
+                _logger.LogWarning(pEx, "Persistence task finished with exception during cancellation for scan {ScanRunId}.", run.Id);
+            }
 
             run.Status = ScanState.Cancelled;
             run.EndTimeUtc = DateTime.UtcNow;
@@ -374,14 +420,28 @@ public sealed class FilesystemScanner : IScanEngine
             run.DirectoriesCompleted = dirsCompleted;
             run.ErrorCount = errorCount;
 
-            await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, filesDiscovered, dirsCompleted, errorCount, CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, filesDiscovered, dirsCompleted, errorCount, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception dbEx)
+            {
+                _logger.LogError(dbEx, "Failed to update scan run status to Cancelled in DB.");
+            }
             ReportProgress(ScanState.Cancelled, "Scan cancelled. Committed batches preserved.");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Scan {ScanRunId} encountered unexpected error.", run.Id);
-            fileChannel.Writer.Complete();
-            await persistenceTask.ConfigureAwait(false);
+            persistenceChannel.Writer.TryComplete();
+            try
+            {
+                await persistenceTask.ConfigureAwait(false);
+            }
+            catch (Exception pEx)
+            {
+                _logger.LogWarning(pEx, "Persistence task finished with exception during failure handling for scan {ScanRunId}.", run.Id);
+            }
 
             run.Status = ScanState.Failed;
             run.EndTimeUtc = DateTime.UtcNow;
@@ -389,7 +449,14 @@ public sealed class FilesystemScanner : IScanEngine
             run.DirectoriesCompleted = dirsCompleted;
             run.ErrorCount = errorCount;
 
-            await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Failed, run.EndTimeUtc, filesDiscovered, dirsCompleted, errorCount, CancellationToken.None).ConfigureAwait(false);
+            try
+            {
+                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Failed, run.EndTimeUtc, filesDiscovered, dirsCompleted, errorCount, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception dbEx)
+            {
+                _logger.LogError(dbEx, "Failed to update scan run status to Failed in DB.");
+            }
             ReportProgress(ScanState.Failed, $"Scan failed: {ex.Message}");
         }
         finally
@@ -409,7 +476,7 @@ public sealed class FilesystemScanner : IScanEngine
         DirectoryRecord dirRecord,
         Guid scanRunId,
         ScanTarget target,
-        ChannelWriter<FileRecord> channelWriter,
+        ChannelWriter<PersistenceItem> channelWriter,
         ConcurrentQueue<DirectoryRecord> queue,
         Action onFileDiscovered,
         Action onErrorEncountered,
@@ -417,8 +484,14 @@ public sealed class FilesystemScanner : IScanEngine
     {
         var path = dirRecord.Path;
 
-        // Check if excluded
-        if (target.ExcludedPaths.Any(p => path.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+        // Check if excluded with proper directory boundary semantics (prevent C:\Temp excluding C:\Temp2)
+        if (target.ExcludedPaths.Any(p =>
+        {
+            var normP = p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return path.Equals(normP, StringComparison.OrdinalIgnoreCase) ||
+                   path.StartsWith(normP + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                   path.StartsWith(normP + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }))
         {
             await _repository.UpdateDirectoryStatusAsync(dirRecord.Id, DirectoryState.Skipped, 0, "Excluded by configuration", cancellationToken).ConfigureAwait(false);
             return;
@@ -451,6 +524,8 @@ public sealed class FilesystemScanner : IScanEngine
         }
 
         var filesCount = 0;
+        var hasErrors = false;
+        string? errorDetail = null;
 
         // Enumerate files
         try
@@ -467,7 +542,7 @@ public sealed class FilesystemScanner : IScanEngine
                     if (target.RecordCloudPlaceholders)
                     {
                         var fileRecord = CreateFileRecord(fi, scanRunId, isCloudPlaceholder: true);
-                        await channelWriter.WriteAsync(fileRecord, cancellationToken).ConfigureAwait(false);
+                        await channelWriter.WriteAsync(new FilePersistenceItem(fileRecord), cancellationToken).ConfigureAwait(false);
                         filesCount++;
                         onFileDiscovered();
                     }
@@ -481,23 +556,29 @@ public sealed class FilesystemScanner : IScanEngine
                 }
 
                 var standardRecord = CreateFileRecord(fi, scanRunId, isCloudPlaceholder: false);
-                await channelWriter.WriteAsync(standardRecord, cancellationToken).ConfigureAwait(false);
+                await channelWriter.WriteAsync(new FilePersistenceItem(standardRecord), cancellationToken).ConfigureAwait(false);
                 filesCount++;
                 onFileDiscovered();
             }
         }
         catch (UnauthorizedAccessException ex)
         {
+            hasErrors = true;
+            errorDetail ??= ex.Message;
             onErrorEncountered();
             await RecordErrorAsync(scanRunId, path, "EnumerateFiles", ex, cancellationToken).ConfigureAwait(false);
         }
         catch (PathTooLongException ex)
         {
+            hasErrors = true;
+            errorDetail ??= ex.Message;
             onErrorEncountered();
             await RecordErrorAsync(scanRunId, path, "EnumerateFiles", ex, cancellationToken).ConfigureAwait(false);
         }
         catch (IOException ex)
         {
+            hasErrors = true;
+            errorDetail ??= ex.Message;
             onErrorEncountered();
             await RecordErrorAsync(scanRunId, path, "EnumerateFiles", ex, cancellationToken).ConfigureAwait(false);
         }
@@ -530,11 +611,15 @@ public sealed class FilesystemScanner : IScanEngine
         }
         catch (UnauthorizedAccessException ex)
         {
+            hasErrors = true;
+            errorDetail ??= ex.Message;
             onErrorEncountered();
             await RecordErrorAsync(scanRunId, path, "EnumerateDirectories", ex, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            hasErrors = true;
+            errorDetail ??= ex.Message;
             onErrorEncountered();
             await RecordErrorAsync(scanRunId, path, "EnumerateDirectories", ex, cancellationToken).ConfigureAwait(false);
         }
@@ -548,8 +633,9 @@ public sealed class FilesystemScanner : IScanEngine
             }
         }
 
-        // Checkpoint directory completion
-        await _repository.UpdateDirectoryStatusAsync(dirRecord.Id, DirectoryState.Completed, filesCount, null, cancellationToken).ConfigureAwait(false);
+        // Checkpoint directory completion through persistence channel ensuring all directory files are durable first
+        var dirState = hasErrors ? DirectoryState.Error : DirectoryState.Completed;
+        await channelWriter.WriteAsync(new DirectoryCheckpointItem(dirRecord.Id, dirState, filesCount, errorDetail), cancellationToken).ConfigureAwait(false);
     }
 
     public static bool IsCloudPlaceholder(FileAttributes attributes)

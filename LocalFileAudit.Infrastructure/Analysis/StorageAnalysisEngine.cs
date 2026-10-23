@@ -79,10 +79,11 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
         var topExtensions = await GetExtensionStatisticsAsync(scanRunId, 25, cancellationToken).ConfigureAwait(false);
         var largestFiles = await GetLargestFilesAsync(scanRunId, 50, cancellationToken).ConfigureAwait(false);
-        var scanRoots = run.SelectedDrives?.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+        var parsedRoots = SelectedRootsHelper.ParseRoots(run.SelectedDrives);
+        var scanRoots = parsedRoots
             .Select(r => NormalizeDirPath(r.Trim()))
             .Where(r => !string.IsNullOrEmpty(r))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var largestDirectories = await GetLargestDirectoriesAsync(scanRunId, 30, scanRoots, cancellationToken).ConfigureAwait(false);
         var candidates = await ClassifyCandidatesAsync(scanRunId, run.Status, cancellationToken).ConfigureAwait(false);
 
@@ -105,7 +106,7 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             }
         }
 
-        var roots = run.SelectedDrives?.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries) ?? Array.Empty<string>();
+        var roots = parsedRoots;
         long totalCapacity = 0;
         long totalFree = 0;
         var inspectedDrives = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

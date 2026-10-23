@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using LocalFileAudit.Core.Analysis;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -365,15 +366,7 @@ public sealed class ReportGenerator : IReportGenerator
         return sb.ToString();
     }
 
-    private static string EscapeCsv(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return "";
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
-        {
-            return $"\"{value.Replace("\"", "\"\"")}\"";
-        }
-        return value;
-    }
+    private static string EscapeCsv(string value) => CsvSanitizer.EscapeCsv(value);
 
     private static string EscapeMarkdown(string value)
     {

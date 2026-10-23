@@ -11,7 +11,8 @@ public enum VerificationStatus
     MissingAtDestination,
     SizeMismatch,
     HashMismatch,
-    ExtraAtDestination
+    ExtraAtDestination,
+    HashError
 }
 
 public sealed class ArchiveVerificationItem
@@ -43,7 +44,15 @@ public sealed class ArchiveVerificationSummary
     public int MissingCount { get; set; }
     public int SizeMismatchCount { get; set; }
     public int HashMismatchCount { get; set; }
+    public int HashErrorCount { get; set; }
     public int ExtraCount { get; set; }
+
+    /// <summary>
+    /// Indicates whether any directories or files were inaccessible or skipped during enumeration.
+    /// If true, verification is partial and source files must NOT be deleted.
+    /// </summary>
+    public bool IsPartial { get; set; }
+    public List<string> EnumerationErrors { get; set; } = new();
 
     public List<ArchiveVerificationItem> Items { get; set; } = new();
 }

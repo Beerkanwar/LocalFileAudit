@@ -161,6 +161,16 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
             return;
         }
 
+        try
+        {
+            LocalFileAudit.Infrastructure.Archive.ArchivePlannerService.ValidatePathsDoNotOverlap(sourcePath, destPath);
+        }
+        catch (InvalidOperationException ex)
+        {
+            MessageBox.Show(ex.Message, "Archive Planner", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
         // Asynchronously estimate size and file count off UI thread, skipping reparse points
         IsEstimating = true;
         IsLoading = true;

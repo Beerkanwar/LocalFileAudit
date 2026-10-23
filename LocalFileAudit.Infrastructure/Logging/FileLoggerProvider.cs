@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using LocalFileAudit.Core.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace LocalFileAudit.Infrastructure.Logging;
@@ -24,6 +25,18 @@ public sealed class FileLoggerProvider : ILoggerProvider
         }
 
         Directory.CreateDirectory(Options.LogDirectory);
+        CleanOldLogs();
+    }
+
+    public void ApplyConfiguration(LoggingConfiguration? config)
+    {
+        if (config == null) return;
+        Options.RedactFilePaths = config.RedactFilePaths;
+        Options.RetainDays = config.RetainDays;
+        if (Enum.TryParse<LogLevel>(config.LogLevel, ignoreCase: true, out var level))
+        {
+            Options.MinLevel = level;
+        }
         CleanOldLogs();
     }
 

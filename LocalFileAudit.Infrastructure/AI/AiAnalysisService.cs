@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using LocalFileAudit.Infrastructure.Logging;
@@ -49,7 +50,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
     private object BuildInferencePayload(StorageMetricsSummary summary, bool redactPaths)
     {
         var configured = _configurationService.Current.AI.MaxPayloadCandidates;
-        var maxCandidates = configured > 0 ? Math.Min(configured, 25) : 25;
+        var maxCandidates = Math.Clamp(configured > 0 ? configured : 25, 1, 1000);
 
         var uniqueCandidates = summary.ReviewCandidates
             .GroupBy(c => c.FileRecordId)
@@ -62,7 +63,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
             {
                 TotalFiles = summary.TotalFiles,
                 TotalLogicalSizeMb = Math.Round(summary.TotalLogicalSizeBytes / (1024.0 * 1024.0), 2),
-                SelectedDrives = summary.SelectedDrives,
+                SelectedDrives = redactPaths ? PathRedactor.Redact(summary.SelectedDrives) : summary.SelectedDrives,
                 ErrorCount = summary.ErrorCount,
                 IsComplete = summary.IsScanComplete
             },
@@ -81,7 +82,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
             CandidatesForReview = uniqueCandidates.Select(c => new
             {
                 CandidateId = c.FileRecordId,
-                FileName = c.FileName,
+                FileName = redactPaths ? PathRedactor.Redact(c.FileName) : c.FileName,
                 Extension = c.Extension,
                 SizeMb = Math.Round(c.SizeBytes / (1024.0 * 1024.0), 2),
                 DeterministicCategory = c.Category.ToString(),
@@ -207,9 +208,13 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
 
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            throw new FormatException("AI response root must be a JSON object.");
+        }
 
-        var execSummary = root.TryGetProperty("executiveSummary", out var esProp) ? esProp.GetString() ?? "" : "";
-        var hotspots = root.TryGetProperty("storageHotspotsAssessment", out var hsProp) ? hsProp.GetString() ?? "" : "";
+        var execSummary = root.TryGetProperty("executiveSummary", out var esProp) ? SafeGetString(esProp) : "";
+        var hotspots = root.TryGetProperty("storageHotspotsAssessment", out var hsProp) ? SafeGetString(hsProp) : "";
 
         var knownCandidateIds = new HashSet<long>(summary.ReviewCandidates.Select(c => c.FileRecordId));
         var candidateMap = new Dictionary<long, CandidateClassification>();
@@ -223,6 +228,8 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         {
             foreach (var r in recsArray.EnumerateArray())
             {
+                if (r.ValueKind != JsonValueKind.Object) continue;
+
                 long candidateId = 0;
                 if (r.TryGetProperty("candidateId", out var idProp) && idProp.TryGetInt64(out var parsedId))
                 {
@@ -236,16 +243,22 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
                     continue;
                 }
 
+                var rawCategory = r.TryGetProperty("suggestedCategory", out var catProp) ? SafeGetString(catProp, "Investigate") : "Investigate";
+                var normalizedCat = rawCategory.Replace(" ", "").Replace("_", "").Replace("-", "");
+                var validatedCategory = Enum.TryParse<CandidateCategory>(normalizedCat, ignoreCase: true, out var parsedCategory) && parsedCategory != CandidateCategory.Unknown
+                    ? rawCategory
+                    : CandidateCategory.Investigate.ToString();
+
                 recommendations.Add(new AiRecommendation
                 {
                     CandidateId = candidateId,
                     FileName = actualCandidate.FileName,
-                    SuggestedCategory = r.TryGetProperty("suggestedCategory", out var cat) ? cat.GetString() ?? "Investigate" : "Investigate",
-                    Explanation = r.TryGetProperty("explanation", out var exp) ? exp.GetString() ?? "" : "",
-                    Evidence = r.TryGetProperty("evidence", out var ev) ? ev.GetString() ?? "" : "",
-                    ConfidenceLevel = r.TryGetProperty("confidenceLevel", out var conf) ? conf.GetString() ?? "Medium" : "Medium",
-                    Uncertainty = r.TryGetProperty("uncertainty", out var unc) ? unc.GetString() ?? "" : "",
-                    RecommendedVerificationStep = r.TryGetProperty("recommendedVerificationStep", out var step) ? step.GetString() ?? "" : ""
+                    SuggestedCategory = validatedCategory,
+                    Explanation = r.TryGetProperty("explanation", out var exp) ? SafeGetString(exp) : "",
+                    Evidence = r.TryGetProperty("evidence", out var ev) ? SafeGetString(ev) : "",
+                    ConfidenceLevel = r.TryGetProperty("confidenceLevel", out var conf) ? SafeGetString(conf, "Medium") : "Medium",
+                    Uncertainty = r.TryGetProperty("uncertainty", out var unc) ? SafeGetString(unc) : "",
+                    RecommendedVerificationStep = r.TryGetProperty("recommendedVerificationStep", out var step) ? SafeGetString(step) : ""
                 });
             }
         }
@@ -255,7 +268,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         {
             foreach (var p in planArray.EnumerateArray())
             {
-                var s = p.GetString();
+                var s = SafeGetString(p);
                 if (!string.IsNullOrWhiteSpace(s)) reviewPlan.Add(s);
             }
         }
@@ -265,7 +278,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         {
             foreach (var w in warnArray.EnumerateArray())
             {
-                var s = w.GetString();
+                var s = SafeGetString(w);
                 if (!string.IsNullOrWhiteSpace(s)) warnings.Add(s);
             }
         }
@@ -280,6 +293,16 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
             RawJson = json,
             ModelName = modelName,
             GeneratedAtUtc = DateTime.UtcNow
+        };
+    }
+
+    private static string SafeGetString(JsonElement element, string defaultValue = "")
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString() ?? defaultValue,
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.ToString(),
+            _ => defaultValue
         };
     }
 
@@ -319,7 +342,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
 
         foreach (var r in response.Recommendations)
         {
-            sb.AppendLine($"| `{r.FileName}` | **{r.SuggestedCategory}** | {r.ConfidenceLevel} | {r.Evidence} | {r.Explanation} | {r.RecommendedVerificationStep} |");
+            sb.AppendLine($"| `{EscapeMarkdownTableCell(r.FileName)}` | **{EscapeMarkdownTableCell(r.SuggestedCategory)}** | {EscapeMarkdownTableCell(r.ConfidenceLevel)} | {EscapeMarkdownTableCell(r.Evidence)} | {EscapeMarkdownTableCell(r.Explanation)} | {EscapeMarkdownTableCell(r.RecommendedVerificationStep)} |");
         }
 
         sb.AppendLine();
@@ -380,7 +403,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         csvSb.AppendLine("CandidateId,FileName,SuggestedCategory,ConfidenceLevel,Evidence,Explanation,RecommendedVerificationStep");
         foreach (var r in response.Recommendations)
         {
-            csvSb.AppendLine($"{r.CandidateId},{EscapeCsv(r.FileName)},{EscapeCsv(r.SuggestedCategory)},{EscapeCsv(r.ConfidenceLevel)},{EscapeCsv(r.Evidence)},{EscapeCsv(r.Explanation)},{EscapeCsv(r.RecommendedVerificationStep)}");
+            csvSb.AppendLine($"{r.CandidateId},{CsvSanitizer.EscapeCsv(r.FileName)},{CsvSanitizer.EscapeCsv(r.SuggestedCategory)},{CsvSanitizer.EscapeCsv(r.ConfidenceLevel)},{CsvSanitizer.EscapeCsv(r.Evidence)},{CsvSanitizer.EscapeCsv(r.Explanation)},{CsvSanitizer.EscapeCsv(r.RecommendedVerificationStep)}");
         }
         await File.WriteAllTextAsync(csvTemp, csvSb.ToString(), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
         File.Move(csvTemp, csvPath, overwrite: true);
@@ -395,7 +418,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         mdSb.AppendLine("|---|---|---|---|---|---|---|");
         foreach (var r in response.Recommendations)
         {
-            mdSb.AppendLine($"| {r.CandidateId} | `{r.FileName}` | **{r.SuggestedCategory}** | {r.ConfidenceLevel} | {EscapeMarkdown(r.Evidence)} | {EscapeMarkdown(r.Explanation)} | {EscapeMarkdown(r.RecommendedVerificationStep)} |");
+            mdSb.AppendLine($"| {r.CandidateId} | `{EscapeMarkdownTableCell(r.FileName)}` | **{EscapeMarkdownTableCell(r.SuggestedCategory)}** | {EscapeMarkdownTableCell(r.ConfidenceLevel)} | {EscapeMarkdownTableCell(r.Evidence)} | {EscapeMarkdownTableCell(r.Explanation)} | {EscapeMarkdownTableCell(r.RecommendedVerificationStep)} |");
         }
         mdSb.AppendLine();
         mdSb.AppendLine("## Prioritized Review Plan");
@@ -417,20 +440,17 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         return (csvPath, mdPath);
     }
 
-    private static string EscapeCsv(string value)
+    private static string EscapeMarkdownTableCell(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
-        {
-            return $"\"{value.Replace("\"", "\"\"")}\"";
-        }
-        return value;
-    }
-
-    private static string EscapeMarkdown(string value)
-    {
-        if (string.IsNullOrEmpty(value)) return "";
-        return value.Replace("|", "\\|").Replace("*", "\\*").Replace("_", "\\_");
+        return value
+            .Replace("\r\n", " ")
+            .Replace("\n", " ")
+            .Replace("\r", " ")
+            .Replace("|", "\\|")
+            .Replace("[", "\\[")
+            .Replace("]", "\\]")
+            .Replace("`", "\\`");
     }
 
     public async Task<IReadOnlyList<AiReportRecord>> GetHistoryAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default)
@@ -466,6 +486,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
 
         var metrics = await _analysisEngine.AnalyzeScanAsync(scanRunId, cancellationToken).ConfigureAwait(false);
 
+        var shouldRedact = config.AI.RedactFilePaths;
         var candidateContextList = new List<string>();
         if (candidateIdsContext != null)
         {
@@ -474,7 +495,8 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
                 var f = await _repository.GetFileByIdAsync(cid, cancellationToken).ConfigureAwait(false);
                 if (f != null)
                 {
-                    candidateContextList.Add($"[File Context: Name={f.FileName}, Size={f.SizeBytes:N0} bytes, Ext={f.Extension}, Modified={f.LastWriteTimeUtc:yyyy-MM-dd}]");
+                    var fileName = shouldRedact ? PathRedactor.Redact(f.FileName) : f.FileName;
+                    candidateContextList.Add($"[File Context: Name={fileName}, Size={f.SizeBytes:N0} bytes, Ext={f.Extension}, Modified={f.LastWriteTimeUtc:yyyy-MM-dd}]");
                 }
             }
         }
@@ -499,7 +521,8 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         systemPrompt.AppendLine("Scan Summary Metadata:");
         systemPrompt.AppendLine($"- Total Inventoried Files: {metrics.TotalFiles:N0}");
         systemPrompt.AppendLine($"- Total Logical Size: {metrics.TotalLogicalSizeBytes / (1024.0 * 1024.0 * 1024.0):F2} GB");
-        systemPrompt.AppendLine($"- Scanned Roots: {metrics.SelectedDrives}");
+        var scannedRoots = shouldRedact ? PathRedactor.Redact(metrics.SelectedDrives) : metrics.SelectedDrives;
+        systemPrompt.AppendLine($"- Scanned Roots: {scannedRoots}");
         systemPrompt.AppendLine($"- Review Candidates: {metrics.ReviewCandidates.Count:N0} files");
         if (metrics.TopExtensions.Count > 0)
         {

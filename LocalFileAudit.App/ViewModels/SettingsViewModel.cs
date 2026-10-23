@@ -2,6 +2,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.Input;
 using LocalFileAudit.Core.Configuration;
 using LocalFileAudit.Core.Interfaces;
+using LocalFileAudit.Infrastructure.Logging;
 using Microsoft.Extensions.Logging;
 
 namespace LocalFileAudit.App.ViewModels;
@@ -12,6 +13,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     private readonly IAppEnvironment _environment;
     private readonly IScanRepository _repository;
     private readonly ILogger<SettingsViewModel> _logger;
+    private readonly FileLoggerProvider? _loggerProvider;
 
     private bool _includeFixedDrives;
     private bool _followReparsePoints;
@@ -38,12 +40,14 @@ public sealed partial class SettingsViewModel : ViewModelBase
         IConfigurationService configurationService,
         IAppEnvironment environment,
         IScanRepository repository,
-        ILogger<SettingsViewModel> logger)
+        ILogger<SettingsViewModel> logger,
+        FileLoggerProvider? loggerProvider = null)
     {
         _configurationService = configurationService ?? throw new ArgumentNullException(nameof(configurationService));
         _environment = environment ?? throw new ArgumentNullException(nameof(environment));
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _loggerProvider = loggerProvider;
 
         Title = "Settings";
         LoadSettings();
@@ -246,7 +250,8 @@ public sealed partial class SettingsViewModel : ViewModelBase
                     ModelName = string.IsNullOrWhiteSpace(AiModelName) ? "qwen2.5:7b" : AiModelName.Trim(),
                     TimeoutSeconds = AiTimeoutSeconds,
                     MaxPayloadCandidates = AiMaxPayloadCandidates,
-                    SendDocumentContents = false
+                    SendDocumentContents = false,
+                    RedactFilePaths = RedactFilePaths
                 },
                 Safety = new SafetyConfiguration
                 {
@@ -263,6 +268,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
             };
 
             await _configurationService.SaveAsync(updated);
+            _loggerProvider?.ApplyConfiguration(updated.Logging);
             IsStatusError = false;
             StatusMessage = "Settings saved successfully to config.json.";
             _logger.LogInformation("Settings saved via SettingsViewModel.");

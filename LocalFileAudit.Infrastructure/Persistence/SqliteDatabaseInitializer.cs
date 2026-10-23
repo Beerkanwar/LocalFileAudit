@@ -48,6 +48,7 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
                 PRAGMA journal_mode = WAL;
                 PRAGMA synchronous = NORMAL;
                 PRAGMA foreign_keys = ON;
+                PRAGMA user_version = 1;
             ";
             await pragmaCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -150,7 +151,8 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             CREATE INDEX IF NOT EXISTS idx_files_scan_ext ON Files(ScanRunId, Extension);
             CREATE INDEX IF NOT EXISTS idx_files_scan_size ON Files(ScanRunId, SizeBytes);
             CREATE INDEX IF NOT EXISTS idx_files_scan_cloud ON Files(ScanRunId, MetadataStatus);
-            CREATE INDEX IF NOT EXISTS idx_dirs_scan_path ON Directories(ScanRunId, Path);
+            CREATE INDEX IF NOT EXISTS idx_files_fullpath ON Files(FullPath, SizeBytes);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_dirs_scan_path_unique ON Directories(ScanRunId, Path);
             CREATE INDEX IF NOT EXISTS idx_dirs_scan_status ON Directories(ScanRunId, Status);
             CREATE INDEX IF NOT EXISTS idx_errors_scan ON ScanErrors(ScanRunId);
             CREATE INDEX IF NOT EXISTS idx_aireports_scan ON AiReports(ScanRunId);
