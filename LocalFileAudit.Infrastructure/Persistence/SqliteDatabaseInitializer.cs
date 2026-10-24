@@ -48,9 +48,32 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
                 PRAGMA journal_mode = WAL;
                 PRAGMA synchronous = NORMAL;
                 PRAGMA foreign_keys = ON;
-                PRAGMA user_version = 1;
             ";
             await pragmaCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // Verify database integrity on startup
+        try
+        {
+            await using var checkCmd = connection.CreateCommand();
+            checkCmd.CommandText = "PRAGMA quick_check;";
+            var checkResult = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(checkResult?.ToString(), "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("SQLite database integrity check warning on startup: {Result}", checkResult);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not complete startup database integrity check.");
+        }
+
+        int userVersion = 0;
+        await using (var vCmd = connection.CreateCommand())
+        {
+            vCmd.CommandText = "PRAGMA user_version;";
+            var vObj = await vCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            userVersion = Convert.ToInt32(vObj);
         }
 
         // Schema creation
@@ -151,6 +174,9 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             CREATE INDEX IF NOT EXISTS idx_files_scan_ext ON Files(ScanRunId, Extension);
             CREATE INDEX IF NOT EXISTS idx_files_scan_size ON Files(ScanRunId, SizeBytes);
             CREATE INDEX IF NOT EXISTS idx_files_scan_cloud ON Files(ScanRunId, MetadataStatus);
+            CREATE INDEX IF NOT EXISTS idx_files_scan_filename ON Files(ScanRunId, FileName);
+            CREATE INDEX IF NOT EXISTS idx_files_scan_lastwrite ON Files(ScanRunId, LastWriteTimeUtc);
+            CREATE INDEX IF NOT EXISTS idx_files_scan_fullpath ON Files(ScanRunId, FullPath);
             CREATE INDEX IF NOT EXISTS idx_files_fullpath ON Files(FullPath, SizeBytes);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_dirs_scan_path_unique ON Directories(ScanRunId, Path);
             CREATE INDEX IF NOT EXISTS idx_dirs_scan_status ON Directories(ScanRunId, Status);
@@ -163,6 +189,14 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
         await using var cmd = connection.CreateCommand();
         cmd.CommandText = ddl;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        if (userVersion < 2)
+        {
+            await using var migrateCmd = connection.CreateCommand();
+            migrateCmd.CommandText = "PRAGMA user_version = 2;";
+            await migrateCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Database migrated to user_version 2 (sorting and fullpath indexes applied).");
+        }
 
         // Checkpoint WAL frames into main DB non-blockingly and update query planner statistics
         await using (var cpCmd = connection.CreateCommand())
@@ -182,5 +216,32 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
         }
 
         _logger.LogInformation("Database schema, indexes, and WAL checkpoint verified.");
+    }
+
+    /// <summary>
+    /// Executes a WAL TRUNCATE checkpoint and optimize on shutdown or maintenance to reclaim WAL disk space.
+    /// </summary>
+    public async Task CheckpointTruncateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = _databasePath,
+                Mode = SqliteOpenMode.ReadWrite,
+                DefaultTimeout = 30
+            }.ToString();
+
+            await using var connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA optimize;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("SQLite WAL TRUNCATE checkpoint executed successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "SQLite WAL TRUNCATE checkpoint skipped during shutdown or maintenance.");
+        }
     }
 }

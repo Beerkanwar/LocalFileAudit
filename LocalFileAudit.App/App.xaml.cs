@@ -68,7 +68,6 @@ public partial class App : Application
                 .ConfigureLogging((context, logging) =>
                 {
                     logging.ClearProviders();
-                    logging.AddConsole();
                     logging.AddLocalFileLogger();
                 })
                 .Build();
@@ -176,8 +175,9 @@ public partial class App : Application
                 return;
             }
 
+            var safeMessage = PathRedactor.Redact(e.Exception.Message);
             MessageBox.Show(
-                $"An unexpected error occurred:\n\n{e.Exception.Message}\n\nThe application will continue running in safe mode. Details have been logged.",
+                $"An unexpected error occurred:\n\n{safeMessage}\n\nThe application will continue running in safe mode. Details have been logged.",
                 "LocalFileAudit Notice",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning);

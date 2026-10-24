@@ -86,11 +86,8 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
                 AvailableScans.Add(s);
             }
 
+            // Setting SelectedScan triggers OnSelectedScanChanged which initiates LoadAnalysisSafeAsync
             SelectedScan = AvailableScans.FirstOrDefault();
-            if (SelectedScan != null)
-            {
-                await LoadAnalysisAsync(SelectedScan.Id);
-            }
 
             await RefreshGeneratedReportsAsync();
         }
@@ -117,21 +114,42 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         }
     }
 
+    private CancellationTokenSource? _loadCts;
+
     partial void OnSelectedScanChanged(ScanRun? value)
     {
         if (value != null)
         {
-            _ = LoadAnalysisAsync(value.Id);
+            _loadCts?.Cancel();
+            _loadCts?.Dispose();
+            _loadCts = new CancellationTokenSource();
+            var token = _loadCts.Token;
+            _ = LoadAnalysisSafeAsync(value.Id, token);
+        }
+    }
+
+    private async Task LoadAnalysisSafeAsync(Guid scanRunId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await LoadAnalysisAsync(scanRunId, cancellationToken);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error analyzing scan {ScanId}", scanRunId);
         }
     }
 
     [RelayCommand]
-    public async Task LoadAnalysisAsync(Guid scanRunId)
+    public async Task LoadAnalysisAsync(Guid scanRunId, CancellationToken cancellationToken = default)
     {
         try
         {
             StatusMessage = "Analyzing storage metrics from SQLite...";
-            var summary = await Task.Run(() => _analysisEngine.AnalyzeScanAsync(scanRunId));
+            var summary = await Task.Run(() => _analysisEngine.AnalyzeScanAsync(scanRunId, cancellationToken), cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             TotalStorageText = $"{summary.TotalLogicalSizeBytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
             TotalFilesText = $"{summary.TotalFiles:N0} files";

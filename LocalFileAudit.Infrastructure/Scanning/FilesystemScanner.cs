@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using LocalFileAudit.Core.Common;
+using LocalFileAudit.Core.Configuration;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -197,10 +198,26 @@ public sealed class FilesystemScanner : IScanEngine
 
             var pendingDirs = await _repository.GetPendingOrInterruptedDirectoriesAsync(scanRunId, CancellationToken.None).ConfigureAwait(false);
 
+            AppConfiguration? snapshotConfig = null;
+            if (!string.IsNullOrWhiteSpace(run.ConfigurationSnapshot))
+            {
+                try
+                {
+                    snapshotConfig = JsonSerializer.Deserialize<AppConfiguration>(run.ConfigurationSnapshot);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize configuration snapshot for scan {ScanRunId}; using current configuration.", scanRunId);
+                }
+            }
+
+            var effectiveConfig = snapshotConfig ?? _configurationService.Current;
             var target = new ScanTarget
             {
-                FollowReparsePoints = _configurationService.Current.Scanning.FollowReparsePoints,
-                LowImpactMode = _configurationService.Current.Scanning.LowImpactMode
+                ExcludedPaths = effectiveConfig.Scanning.ExcludedPaths?.ToList() ?? new List<string>(),
+                FollowReparsePoints = effectiveConfig.Scanning.FollowReparsePoints,
+                LowImpactMode = effectiveConfig.Scanning.LowImpactMode,
+                RecordCloudPlaceholders = effectiveConfig.Scanning.RecordCloudPlaceholders
             };
 
             return await ExecuteScanLoopAsync(run, pendingDirs, target, cancellationToken, progress).ConfigureAwait(false);
@@ -260,6 +277,8 @@ public sealed class FilesystemScanner : IScanEngine
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var activeWorkers = 0;
+        Exception? persistenceFault = null;
+        var visitedDirectories = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
 
         // Background batch persistence consumer
         var persistenceTask = Task.Run(async () =>
@@ -304,6 +323,7 @@ public sealed class FilesystemScanner : IScanEngine
             }
             catch (Exception pEx)
             {
+                persistenceFault = pEx;
                 _logger.LogError(pEx, "Batch persistence consumer faulted for scan {ScanRunId}. Cancelling workers.", run.Id);
                 try { linkedCts.Cancel(); } catch { }
                 throw;
@@ -367,6 +387,7 @@ public sealed class FilesystemScanner : IScanEngine
                             directoryQueue,
                             () => Interlocked.Increment(ref filesDiscovered),
                             () => Interlocked.Increment(ref errorCount),
+                            visitedDirectories,
                             linkedCts.Token).ConfigureAwait(false);
 
                         Interlocked.Increment(ref dirsCompleted);
@@ -390,20 +411,31 @@ public sealed class FilesystemScanner : IScanEngine
             persistenceChannel.Writer.Complete();
             await persistenceTask.ConfigureAwait(false);
 
+            long durableFiles = filesDiscovered;
+            long durableDirs = dirsCompleted;
+            try
+            {
+                durableFiles = await _repository.GetFileCountForScanAsync(run.Id, CancellationToken.None).ConfigureAwait(false);
+                durableDirs = await _repository.GetCompletedDirectoryCountForScanAsync(run.Id, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception countEx)
+            {
+                _logger.LogWarning(countEx, "Failed to derive exact file/directory count from database; using in-memory count.");
+            }
+
             run.Status = ScanState.Completed;
             run.EndTimeUtc = DateTime.UtcNow;
-            run.FilesDiscovered = filesDiscovered;
-            run.DirectoriesCompleted = dirsCompleted;
+            run.FilesDiscovered = durableFiles;
+            run.DirectoriesCompleted = durableDirs;
             run.ErrorCount = errorCount;
 
-            await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Completed, run.EndTimeUtc, filesDiscovered, dirsCompleted, errorCount, CancellationToken.None).ConfigureAwait(false);
-            _logger.LogInformation("Scan {ScanRunId} completed successfully. Files: {Files}, Dirs: {Dirs}, Errors: {Errors}", run.Id, filesDiscovered, dirsCompleted, errorCount);
+            await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Completed, run.EndTimeUtc, durableFiles, durableDirs, errorCount, CancellationToken.None).ConfigureAwait(false);
+            _logger.LogInformation("Scan {ScanRunId} completed successfully. Files: {Files}, Dirs: {Dirs}, Errors: {Errors}", run.Id, durableFiles, durableDirs, errorCount);
 
             ReportProgress(ScanState.Completed, "Scan completed successfully.");
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("Scan {ScanRunId} was cancelled by user.", run.Id);
             persistenceChannel.Writer.TryComplete();
             try
             {
@@ -411,24 +443,58 @@ public sealed class FilesystemScanner : IScanEngine
             }
             catch (Exception pEx)
             {
+                persistenceFault ??= pEx;
                 _logger.LogWarning(pEx, "Persistence task finished with exception during cancellation for scan {ScanRunId}.", run.Id);
             }
 
-            run.Status = ScanState.Cancelled;
-            run.EndTimeUtc = DateTime.UtcNow;
-            run.FilesDiscovered = filesDiscovered;
-            run.DirectoriesCompleted = dirsCompleted;
-            run.ErrorCount = errorCount;
-
+            long durableFiles = filesDiscovered;
+            long durableDirs = dirsCompleted;
             try
             {
-                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, filesDiscovered, dirsCompleted, errorCount, CancellationToken.None).ConfigureAwait(false);
+                durableFiles = await _repository.GetFileCountForScanAsync(run.Id, CancellationToken.None).ConfigureAwait(false);
+                durableDirs = await _repository.GetCompletedDirectoryCountForScanAsync(run.Id, CancellationToken.None).ConfigureAwait(false);
             }
-            catch (Exception dbEx)
+            catch (Exception countEx)
             {
-                _logger.LogError(dbEx, "Failed to update scan run status to Cancelled in DB.");
+                _logger.LogWarning(countEx, "Failed to derive exact count during cancellation.");
             }
-            ReportProgress(ScanState.Cancelled, "Scan cancelled. Committed batches preserved.");
+
+            run.FilesDiscovered = durableFiles;
+            run.DirectoriesCompleted = durableDirs;
+            run.ErrorCount = errorCount;
+            run.EndTimeUtc = DateTime.UtcNow;
+
+            if (persistenceFault != null || (!cancellationToken.IsCancellationRequested && persistenceTask.IsFaulted))
+            {
+                var faultEx = persistenceFault ?? persistenceTask.Exception?.GetBaseException();
+                _logger.LogError(faultEx, "Scan {ScanRunId} failed due to persistence consumer fault (e.g. disk full or schema error).", run.Id);
+                run.Status = ScanState.Failed;
+
+                try
+                {
+                    await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Failed, run.EndTimeUtc, durableFiles, durableDirs, errorCount, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception dbEx)
+                {
+                    _logger.LogError(dbEx, "Failed to update scan run status to Failed in DB.");
+                }
+                ReportProgress(ScanState.Failed, $"Scan failed due to persistence error: {faultEx?.Message ?? "Database failure"}");
+            }
+            else
+            {
+                _logger.LogWarning("Scan {ScanRunId} was cancelled by user.", run.Id);
+                run.Status = ScanState.Cancelled;
+
+                try
+                {
+                    await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Cancelled, run.EndTimeUtc, durableFiles, durableDirs, errorCount, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception dbEx)
+                {
+                    _logger.LogError(dbEx, "Failed to update scan run status to Cancelled in DB.");
+                }
+                ReportProgress(ScanState.Cancelled, "Scan cancelled. Committed batches preserved.");
+            }
         }
         catch (Exception ex)
         {
@@ -443,15 +509,27 @@ public sealed class FilesystemScanner : IScanEngine
                 _logger.LogWarning(pEx, "Persistence task finished with exception during failure handling for scan {ScanRunId}.", run.Id);
             }
 
+            long durableFiles = filesDiscovered;
+            long durableDirs = dirsCompleted;
+            try
+            {
+                durableFiles = await _repository.GetFileCountForScanAsync(run.Id, CancellationToken.None).ConfigureAwait(false);
+                durableDirs = await _repository.GetCompletedDirectoryCountForScanAsync(run.Id, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception countEx)
+            {
+                _logger.LogWarning(countEx, "Failed to derive exact count during failure.");
+            }
+
             run.Status = ScanState.Failed;
             run.EndTimeUtc = DateTime.UtcNow;
-            run.FilesDiscovered = filesDiscovered;
-            run.DirectoriesCompleted = dirsCompleted;
+            run.FilesDiscovered = durableFiles;
+            run.DirectoriesCompleted = durableDirs;
             run.ErrorCount = errorCount;
 
             try
             {
-                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Failed, run.EndTimeUtc, filesDiscovered, dirsCompleted, errorCount, CancellationToken.None).ConfigureAwait(false);
+                await _repository.UpdateScanRunStatusAsync(run.Id, ScanState.Failed, run.EndTimeUtc, durableFiles, durableDirs, errorCount, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception dbEx)
             {
@@ -480,6 +558,7 @@ public sealed class FilesystemScanner : IScanEngine
         ConcurrentQueue<DirectoryRecord> queue,
         Action onFileDiscovered,
         Action onErrorEncountered,
+        ConcurrentDictionary<string, byte> visitedDirectories,
         CancellationToken cancellationToken)
     {
         var path = dirRecord.Path;
@@ -513,6 +592,16 @@ public sealed class FilesystemScanner : IScanEngine
                 _logger.LogDebug("Skipping reparse point directory {Path}", path);
                 await _repository.UpdateDirectoryStatusAsync(dirRecord.Id, DirectoryState.Skipped, 0, "Skipped reparse point / junction", cancellationToken).ConfigureAwait(false);
                 return;
+            }
+
+            if (target.FollowReparsePoints)
+            {
+                if (!visitedDirectories.TryAdd(dirInfo.FullName, 0))
+                {
+                    _logger.LogDebug("Skipping already visited directory (cycle prevention): {Path}", path);
+                    await _repository.UpdateDirectoryStatusAsync(dirRecord.Id, DirectoryState.Skipped, 0, "Skipped already visited directory (cycle prevention)", cancellationToken).ConfigureAwait(false);
+                    return;
+                }
             }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -719,26 +808,69 @@ public sealed class FilesystemScanner : IScanEngine
         }
     }
 
-    private static List<string> ResolveTargetRoots(ScanTarget target)
+    public static List<string> ResolveTargetRoots(ScanTarget target)
     {
+        var rawRoots = new List<string>();
         if (target.TargetPaths.Count > 0)
         {
-            return target.TargetPaths.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            rawRoots.AddRange(target.TargetPaths);
         }
-
-        var roots = new List<string>();
-        if (target.IncludeFixedDrivesByDefault)
+        else if (target.IncludeFixedDrivesByDefault)
         {
             var drives = DriveInfo.GetDrives();
             foreach (var drive in drives)
             {
                 if (drive.DriveType == DriveType.Fixed && drive.IsReady)
                 {
-                    roots.Add(drive.RootDirectory.FullName);
+                    rawRoots.Add(drive.RootDirectory.FullName);
                 }
             }
         }
 
-        return roots;
+        return PruneNestedRoots(rawRoots);
+    }
+
+    public static List<string> PruneNestedRoots(IEnumerable<string> rawPaths)
+    {
+        var normalized = new List<string>();
+        foreach (var p in rawPaths)
+        {
+            if (string.IsNullOrWhiteSpace(p)) continue;
+            try
+            {
+                var full = Path.GetFullPath(p.Trim());
+                if (Directory.Exists(full))
+                {
+                    var canonical = full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                    normalized.Add(canonical);
+                }
+            }
+            catch
+            {
+                // Invalid path format is skipped safely
+            }
+        }
+
+        normalized = normalized.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p.Length).ToList();
+        var pruned = new List<string>();
+
+        foreach (var candidate in normalized)
+        {
+            bool isNested = false;
+            foreach (var existing in pruned)
+            {
+                if (candidate.StartsWith(existing, StringComparison.OrdinalIgnoreCase))
+                {
+                    isNested = true;
+                    break;
+                }
+            }
+            if (!isNested)
+            {
+                pruned.Add(candidate);
+            }
+        }
+
+        return pruned.Select(p => p.Length > 3 ? p.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : p).ToList();
     }
 }

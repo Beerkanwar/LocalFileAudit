@@ -41,6 +41,9 @@ internal sealed class FileLogger : ILogger
             message = PathRedactor.Redact(message);
         }
 
+        // Prevent log injection by removing newlines from the message line
+        message = message.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ');
+
         var sb = new StringBuilder();
         sb.Append(DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff 'UTC'"));
         sb.Append(" [");

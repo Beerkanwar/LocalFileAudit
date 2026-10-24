@@ -95,7 +95,7 @@ If you prefer building from source, clone the repository and build using the .NE
 ```powershell
 # Clone the repository
 git clone https://github.com/Beerkanwar/LocalFileAudit.git
-cd LocalFileAudit\LocalFileAudit
+cd LocalFileAudit
 
 # Restore dependencies
 dotnet restore LocalFileAudit.slnx

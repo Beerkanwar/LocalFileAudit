@@ -46,6 +46,8 @@ public sealed class FileLoggerProvider : ILoggerProvider
         return _loggers.GetOrAdd(categoryName, name => new FileLogger(name, this));
     }
 
+    private const long MaxLogFileSizeBytes = 10 * 1024 * 1024; // 10 MB bound
+
     internal void WriteEntry(string entry)
     {
         if (_disposed)
@@ -58,6 +60,22 @@ public sealed class FileLoggerProvider : ILoggerProvider
             try
             {
                 var filePath = GetCurrentLogFilePath();
+                var fileInfo = new FileInfo(filePath);
+                if (fileInfo.Exists && fileInfo.Length > MaxLogFileSizeBytes)
+                {
+                    var rolledPath = Path.Combine(
+                        Options.LogDirectory!,
+                        $"{Options.LogFileNamePrefix}-{DateTime.UtcNow:yyyyMMdd}-{DateTime.UtcNow:HHmmss}.log");
+                    try
+                    {
+                        File.Move(filePath, rolledPath, overwrite: true);
+                    }
+                    catch
+                    {
+                        // Fallback if move fails
+                    }
+                }
+
                 File.AppendAllText(filePath, entry + System.Environment.NewLine);
             }
             catch

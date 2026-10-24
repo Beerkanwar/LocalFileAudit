@@ -20,8 +20,18 @@ public sealed class SizeFilterOption
 public sealed class AgeFilterOption
 {
     public string DisplayName { get; init; } = string.Empty;
-    public DateTime? MinDateUtc { get; init; }
-    public DateTime? MaxDateUtc { get; init; }
+    public int? DaysAgoMin { get; init; }
+    public int? DaysAgoMax { get; init; }
+    public DateTime? MinDateUtc => DaysAgoMin.HasValue ? DateTime.UtcNow.AddDays(-DaysAgoMin.Value) : null;
+    public DateTime? MaxDateUtc => DaysAgoMax.HasValue ? DateTime.UtcNow.AddDays(-DaysAgoMax.Value) : null;
+
+    public AgeFilterOption() { }
+    public AgeFilterOption(string displayName, int? daysAgoMin = null, int? daysAgoMax = null)
+    {
+        DisplayName = displayName;
+        DaysAgoMin = daysAgoMin;
+        DaysAgoMax = daysAgoMax;
+    }
 }
 
 public sealed class ScanRunOption
@@ -38,6 +48,7 @@ public sealed partial class InventoryViewModel : ViewModelBase
     private readonly INotificationService? _notificationService;
     private readonly ILogger<InventoryViewModel> _logger;
     private CancellationTokenSource? _exportCts;
+    private CancellationTokenSource? _searchCts;
 
     public Action<string, Guid?>? OnNavigateToAiChat { get; set; }
 
@@ -142,12 +153,11 @@ public sealed partial class InventoryViewModel : ViewModelBase
         SizeFilterOptions.Add(new SizeFilterOption { DisplayName = "> 5 GB", MinBytes = 5L * 1024 * 1024 * 1024 });
         SelectedSizeOption = SizeFilterOptions[0];
 
-        var now = DateTime.UtcNow;
-        AgeFilterOptions.Add(new AgeFilterOption { DisplayName = "Any Age" });
-        AgeFilterOptions.Add(new AgeFilterOption { DisplayName = "Last 30 Days", MinDateUtc = now.AddDays(-30) });
-        AgeFilterOptions.Add(new AgeFilterOption { DisplayName = "Last 1 Year", MinDateUtc = now.AddDays(-365) });
-        AgeFilterOptions.Add(new AgeFilterOption { DisplayName = "Older than 2 Years", MaxDateUtc = now.AddDays(-730) });
-        AgeFilterOptions.Add(new AgeFilterOption { DisplayName = "Older than 5 Years", MaxDateUtc = now.AddDays(-1825) });
+        AgeFilterOptions.Add(new AgeFilterOption("Any Age"));
+        AgeFilterOptions.Add(new AgeFilterOption("Last 30 Days", daysAgoMin: 30));
+        AgeFilterOptions.Add(new AgeFilterOption("Last 1 Year", daysAgoMin: 365));
+        AgeFilterOptions.Add(new AgeFilterOption("Older than 2 Years", daysAgoMax: 730));
+        AgeFilterOptions.Add(new AgeFilterOption("Older than 5 Years", daysAgoMax: 1825));
         SelectedAgeOption = AgeFilterOptions[0];
     }
 
@@ -292,7 +302,10 @@ public sealed partial class InventoryViewModel : ViewModelBase
 
     public async Task ExecuteSearchAsync()
     {
-        if (IsLoading) return;
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
 
         IsLoading = true;
         StatusMessage = "Querying inventory database...";
@@ -317,7 +330,8 @@ public sealed partial class InventoryViewModel : ViewModelBase
                 Limit = PageSize
             };
 
-            var paged = await _repository.QueryFilesAsync(query);
+            var paged = await _repository.QueryFilesAsync(query, token);
+            token.ThrowIfCancellationRequested();
 
             Files.Clear();
             foreach (var item in paged.Items)
@@ -334,6 +348,10 @@ public sealed partial class InventoryViewModel : ViewModelBase
                 SelectedFile = Files[0];
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Cancelled in favor of newer query
+        }
         catch (Exception ex)
         {
             StatusMessage = $"Search error: {ex.Message}";
@@ -341,7 +359,10 @@ public sealed partial class InventoryViewModel : ViewModelBase
         }
         finally
         {
-            IsLoading = false;
+            if (_searchCts?.Token == token)
+            {
+                IsLoading = false;
+            }
         }
     }
 
@@ -431,8 +452,16 @@ public sealed partial class InventoryViewModel : ViewModelBase
     {
         if (SelectedFile != null && !string.IsNullOrWhiteSpace(SelectedFile.FullPath))
         {
-            Clipboard.SetText(SelectedFile.FullPath);
-            StatusMessage = $"Copied path to clipboard: {SelectedFile.FileName}";
+            try
+            {
+                Clipboard.SetText(SelectedFile.FullPath);
+                StatusMessage = $"Copied path to clipboard: {SelectedFile.FileName}";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to copy file path to clipboard.");
+                StatusMessage = "Unable to copy path (clipboard may be locked by another application).";
+            }
         }
     }
 
@@ -526,8 +555,11 @@ public sealed partial class InventoryViewModel : ViewModelBase
         {
             var filter = new FileInventoryExportFilter
             {
+                SearchText = string.IsNullOrWhiteSpace(SearchText) ? null : SearchText,
                 Extension = (SelectedExtension == "All Extensions" || string.IsNullOrWhiteSpace(SelectedExtension)) ? null : SelectedExtension,
                 MinSizeBytes = SelectedSizeOption?.MinBytes,
+                MinModifiedUtc = SelectedAgeOption?.MinDateUtc,
+                MaxModifiedUtc = SelectedAgeOption?.MaxDateUtc,
                 OnlyCandidates = false
             };
 

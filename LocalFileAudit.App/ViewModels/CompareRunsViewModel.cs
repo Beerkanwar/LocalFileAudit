@@ -151,7 +151,15 @@ public sealed partial class CompareRunsViewModel : ViewModelBase
 
             ApplyFilter();
             HasComparisonResult = true;
-            StatusMessage = $"Comparison complete: {result.Deltas.Count:N0} total file changes discovered ({sign}{FormatBytes(result.NetStorageDeltaBytes)} net storage)";
+            if (!string.IsNullOrEmpty(result.WarningMessage))
+            {
+                StatusMessage = $"Warning: {result.WarningMessage} ({result.Deltas.Count:N0} file changes)";
+                MessageBox.Show(result.WarningMessage, "Scan Roots Mismatch", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+            else
+            {
+                StatusMessage = $"Comparison complete: {result.Deltas.Count:N0} total file changes discovered ({sign}{FormatBytes(result.NetStorageDeltaBytes)} net storage)";
+            }
         }
         catch (Exception ex)
         {
@@ -165,8 +173,29 @@ public sealed partial class CompareRunsViewModel : ViewModelBase
         }
     }
 
+    private CancellationTokenSource? _searchDebounceCts;
+
     partial void OnSelectedDeltaFilterChanged(string value) => ApplyFilter();
-    partial void OnSearchFilterChanged(string value) => ApplyFilter();
+    partial void OnSearchFilterChanged(string value)
+    {
+        _searchDebounceCts?.Cancel();
+        _searchDebounceCts?.Dispose();
+        _searchDebounceCts = new CancellationTokenSource();
+        var token = _searchDebounceCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(200, token).ConfigureAwait(false);
+                if (!token.IsCancellationRequested)
+                {
+                    Application.Current?.Dispatcher?.Invoke(ApplyFilter);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, token);
+    }
 
     [RelayCommand]
     public void ApplyFilter()

@@ -35,6 +35,9 @@ jobs:
       run: |
         $vuln = dotnet list package --vulnerable --include-transitive
         $vuln | Out-String | Write-Host
+        if ($LASTEXITCODE -ne 0) {
+          throw "dotnet list package failed with exit code $LASTEXITCODE (feed may be unreachable or error occurred)"
+        }
         if ($vuln -match 'has the following vulnerable packages') {
           throw "Vulnerable NuGet packages detected in solution!"
         }

@@ -238,7 +238,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
         AiTimeoutSeconds = cfg.AI.TimeoutSeconds > 0 ? cfg.AI.TimeoutSeconds : 180;
         AiMaxPayloadCandidates = cfg.AI.MaxPayloadCandidates > 0 ? cfg.AI.MaxPayloadCandidates : 25;
 
-        RedactFilePaths = cfg.Logging.RedactFilePaths;
+        RedactFilePaths = cfg.Logging.RedactFilePaths || cfg.AI.RedactFilePaths;
         LogRetainDays = cfg.Logging.RetainDays;
         ExcludedPathsText = string.Join("; ", cfg.Scanning.ExcludedPaths);
         LogLevel = string.IsNullOrWhiteSpace(cfg.Logging.LogLevel) ? "Information" : cfg.Logging.LogLevel;
@@ -249,6 +249,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         try
         {
+            var currentCfg = _configurationService.Current;
             var updated = new AppConfiguration
             {
                 Scanning = new ScanningConfiguration
@@ -261,6 +262,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
                     HashingEnabledByDefault = HashingEnabled,
                     CompletionNotificationEnabled = CompletionNotificationEnabled,
                     CompletionSoundEnabled = CompletionSoundEnabled,
+                    RecordCloudPlaceholders = currentCfg.Scanning.RecordCloudPlaceholders,
                     ExcludedPaths = ExcludedPathsText
                         .Split(new[] { ';', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                         .Select(p => p.Trim())
@@ -272,7 +274,7 @@ public sealed partial class SettingsViewModel : ViewModelBase
                 {
                     LargeFileThresholdBytes = (long)LargeFileThresholdMb * 1024 * 1024,
                     OldFileAgeDays = OldFileAgeDays,
-                    ArchiveRecommendationsRequireReview = true
+                    ArchiveRecommendationsRequireReview = currentCfg.Analysis.ArchiveRecommendationsRequireReview
                 },
                 AI = new AiConfiguration
                 {
@@ -347,13 +349,29 @@ public sealed partial class SettingsViewModel : ViewModelBase
     {
         try
         {
-            var backupDir = Path.Combine(_environment.DatabaseDirectory, "backups");
+            var backupDir = _environment.BackupsDirectory;
             Directory.CreateDirectory(backupDir);
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss");
             var backupFile = Path.Combine(backupDir, $"localfileaudit-backup-{timestamp}.db");
 
             StatusMessage = "Creating online SQLite backup...";
             await _repository.BackupDatabaseAsync(backupFile);
+
+            // Prune backups beyond the 5 most recent
+            try
+            {
+                var backups = new DirectoryInfo(backupDir).GetFiles("localfileaudit-backup-*.db")
+                    .OrderByDescending(f => f.CreationTimeUtc)
+                    .Skip(5);
+                foreach (var oldBackup in backups)
+                {
+                    try { oldBackup.Delete(); } catch { }
+                }
+            }
+            catch (Exception pruneEx)
+            {
+                _logger.LogWarning(pruneEx, "Failed to prune older backups.");
+            }
 
             IsStatusError = false;
             StatusMessage = $"Database backed up successfully to: {backupFile}";

@@ -22,7 +22,7 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
     private string _destinationPath = string.Empty;
 
     [ObservableProperty]
-    private bool _calculateSha256;
+    private bool _calculateSha256 = true;
 
     [ObservableProperty]
     private bool _isVerifying;
@@ -152,12 +152,16 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
             }
             StatusMessage = msg;
 
+            var matchDesc = CalculateSha256
+                ? $"{res.MatchCount:N0} matches verified via SHA-256 hash"
+                : $"{res.MatchCount:N0} matches verified by size only (unhashed)";
+
             var isSafeSuccess = !res.IsPartial && res.MissingCount == 0 && res.SizeMismatchCount == 0 && res.HashMismatchCount == 0 && res.HashErrorCount == 0;
             _notificationService?.NotifyScanCompleted(
                 res.IsPartial ? "Archive Verification Partial Warning" : "Archive Verification Complete",
                 res.IsPartial
                     ? $"Verification was PARTIAL ({res.EnumerationErrors.Count} unreadable paths). Do not delete source files."
-                    : $"{res.MatchCount:N0} matches verified. {res.MissingCount + res.SizeMismatchCount + res.HashMismatchCount + res.HashErrorCount} discrepancies/errors discovered.",
+                    : $"{matchDesc}. {res.MissingCount + res.SizeMismatchCount + res.HashMismatchCount + res.HashErrorCount} discrepancies/errors discovered.",
                 isSuccess: isSafeSuccess);
         }
         catch (OperationCanceledException)
@@ -220,8 +224,29 @@ public sealed partial class ArchiveVerificationViewModel : ViewModelBase
         }
     }
 
+    private CancellationTokenSource? _filterDebounceCts;
+
     partial void OnSelectedStatusFilterChanged(string value) => ApplyFilter();
-    partial void OnSearchFilterChanged(string value) => ApplyFilter();
+    partial void OnSearchFilterChanged(string value)
+    {
+        _filterDebounceCts?.Cancel();
+        _filterDebounceCts?.Dispose();
+        _filterDebounceCts = new CancellationTokenSource();
+        var token = _filterDebounceCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(200, token).ConfigureAwait(false);
+                if (!token.IsCancellationRequested)
+                {
+                    Application.Current?.Dispatcher?.Invoke(ApplyFilter);
+                }
+            }
+            catch (OperationCanceledException) { }
+        }, token);
+    }
 
     private void ApplyFilter()
     {

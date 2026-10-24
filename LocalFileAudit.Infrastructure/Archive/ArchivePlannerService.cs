@@ -64,7 +64,9 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             {
                 if (File.Exists(_planFilePath))
                 {
-                    File.Copy(_planFilePath, _planFilePath + ".corrupted.bak", overwrite: true);
+                    var backupPath = $"{_planFilePath}.corrupted.{DateTime.UtcNow:yyyyMMddHHmmss}.bak";
+                    File.Copy(_planFilePath, backupPath, overwrite: true);
+                    PruneOldCorruptedBackups(Path.GetDirectoryName(_planFilePath) ?? ".", "archive-plan.json.corrupted.*.bak", 5);
                 }
             }
             catch
@@ -260,8 +262,9 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             copySb.AppendLine("$safeDst = if ($dst.EndsWith('\\') -and -not $dst.EndsWith(':\\')) { $dst.TrimEnd('\\') } elseif ($dst.EndsWith(':\\')) { $dst + '.' } else { $dst }");
             copySb.AppendLine($"$log = Join-Path $logDir 'copy-{escapedCleanName}.log'");
             copySb.AppendLine("if (Test-Path $src) {");
-            copySb.AppendLine("    # Copy with data, attributes, timestamps. Safe retries, skip junctions.");
-            copySb.AppendLine("    robocopy $safeSrc $safeDst /E /COPY:DAT /XJ /NP /R:2 /W:3 /LOG+:$log");
+            copySb.AppendLine("    if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }");
+            copySb.AppendLine("    # Copy with data, attributes, timestamps. Safe retries, skip junctions, exclude older files (/XO), preserve directory timestamps (/DCOPY:DAT).");
+            copySb.AppendLine("    robocopy $safeSrc $safeDst /E /COPY:DAT /DCOPY:DAT /XO /XJ /NP /R:2 /W:3 /LOG+:$log");
             copySb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
             copySb.AppendLine($"        throw ('Robocopy copy failed with exit code ' + $LASTEXITCODE + ' for batch ''' + '{escapedBatchName}' + '''. Check log: ' + $log)");
             copySb.AppendLine("    }");
@@ -455,28 +458,26 @@ public sealed class ArchivePlannerService : IArchivePlannerService
 
     public static void ValidatePathsDoNotOverlap(string source, string destination)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(source);
-        ArgumentException.ThrowIfNullOrWhiteSpace(destination);
+        PathOverlapValidator.ValidateDoNotOverlap(source, destination);
+    }
 
-        var sep = Path.DirectorySeparatorChar.ToString();
-        var altSep = Path.AltDirectorySeparatorChar.ToString();
-
-        var srcNorm = source.Replace(altSep, sep).TrimEnd(Path.DirectorySeparatorChar) + sep;
-        var dstNorm = destination.Replace(altSep, sep).TrimEnd(Path.DirectorySeparatorChar) + sep;
-
-        if (string.Equals(srcNorm, dstNorm, StringComparison.OrdinalIgnoreCase))
+    private static void PruneOldCorruptedBackups(string directory, string searchPattern, int retainMax)
+    {
+        try
         {
-            throw new InvalidOperationException("Source and Destination cannot be the exact same directory.");
+            if (!Directory.Exists(directory)) return;
+            var files = new DirectoryInfo(directory).GetFiles(searchPattern)
+                .OrderByDescending(f => f.CreationTimeUtc)
+                .Skip(retainMax);
+
+            foreach (var f in files)
+            {
+                try { f.Delete(); } catch { }
+            }
         }
-
-        if (dstNorm.StartsWith(srcNorm, StringComparison.OrdinalIgnoreCase))
+        catch
         {
-            throw new InvalidOperationException("Destination directory cannot be nested inside the source directory.");
-        }
-
-        if (srcNorm.StartsWith(dstNorm, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Source directory cannot be nested inside the destination directory.");
+            // Best effort cleanup
         }
     }
 }

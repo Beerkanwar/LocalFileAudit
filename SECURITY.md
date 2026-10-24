@@ -58,7 +58,7 @@ LocalFileAudit operates under a defense-in-depth security model:
 If you discover a security vulnerability or safety issue in LocalFileAudit:
 
 1. **Do not create a public GitHub issue.**
-2. Send an email to the repository maintainer or open a GitHub Security Advisory via the repository's "Security" tab.
+2. Send an email to the repository maintainer at **`beer14246@gmail.com`** or open a private advisory at [GitHub Security Advisories](https://github.com/Beerkanwar/LocalFileAudit/security/advisories/new).
 3. Include detailed steps to reproduce the issue and expected vs. actual behavior.
 4. Vulnerability reports will be acknowledged within 48 hours, and a patch will be prioritized.
 

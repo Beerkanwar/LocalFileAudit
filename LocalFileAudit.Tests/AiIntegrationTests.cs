@@ -44,6 +44,7 @@ public class AiIntegrationTests : IDisposable
 
         _initializer.InitializeAsync().GetAwaiter().GetResult();
         _configService.LoadAsync().GetAwaiter().GetResult();
+        _configService.Current.AI.Enabled = true;
     }
 
     [Fact]

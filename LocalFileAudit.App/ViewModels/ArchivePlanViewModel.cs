@@ -279,6 +279,16 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
     public async Task MarkVerifiedAsync(ArchiveBatch? batch)
     {
         if (batch == null) return;
+
+        var confirm = MessageBox.Show(
+            $"Have you independently verified batch '{batch.BatchName}' using the Archive Verifier tool with full SHA-256 hashing?\n\n" +
+            "Marking a batch as verified writes a permanent verification record to the manifest CSV. Only mark verified if destination copies match exactly.",
+            "Confirm Verification Status",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
         batch.IsVerified = true;
         batch.VerifiedAtUtc = DateTime.UtcNow;
         await _plannerService.MarkBatchVerifiedAsync(batch.Id);

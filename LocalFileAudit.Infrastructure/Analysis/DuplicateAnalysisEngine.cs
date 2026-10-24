@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
+using LocalFileAudit.Infrastructure.Persistence;
 using LocalFileAudit.Infrastructure.Scanning;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
@@ -128,7 +129,7 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
         int processed = 0;
         long totalBytesHashed = 0;
         var hashedFiles = new System.Collections.Concurrent.ConcurrentBag<FileRecord>();
-        var maxConcurrency = Math.Clamp(System.Environment.ProcessorCount, 2, 8);
+        var maxConcurrency = Math.Clamp(System.Environment.ProcessorCount / 2, 2, 4);
         using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
 
         var hashTasks = filesToHash.Select(async file =>
@@ -235,14 +236,14 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
 
             // Check pre-hash timestamp
             var preModified = File.GetLastWriteTimeUtc(fullPath);
-            if (expectedLastWriteUtc.HasValue && Math.Abs((preModified - expectedLastWriteUtc.Value).TotalSeconds) > 2)
+            if (expectedLastWriteUtc.HasValue && Math.Abs((preModified - expectedLastWriteUtc.Value).TotalSeconds) > 1)
             {
                 _logger.LogWarning("File modified since scan: {Path}. Discarding hash for safety.", fullPath);
                 return null;
             }
 
             byte[] hashBytes;
-            await using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true))
+            await using (var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true))
             {
                 hashBytes = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
             }
@@ -268,25 +269,5 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
         }
     }
 
-    private static FileRecord MapFileRecord(SqliteDataReader reader)
-    {
-        return new FileRecord
-        {
-            Id = reader.GetInt64(reader.GetOrdinal("Id")),
-            ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
-            FullPath = reader.GetString(reader.GetOrdinal("FullPath")),
-            ParentPath = reader.GetString(reader.GetOrdinal("ParentPath")),
-            FileName = reader.GetString(reader.GetOrdinal("FileName")),
-            Extension = reader.GetString(reader.GetOrdinal("Extension")),
-            SizeBytes = reader.GetInt64(reader.GetOrdinal("SizeBytes")),
-            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
-            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
-            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
-            Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
-            ObservedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
-            MetadataStatus = Enum.TryParse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true, out var ms) ? ms : ScanMetadataStatus.Ok,
-            HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
-            HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))
-        };
-    }
+    private static FileRecord MapFileRecord(SqliteDataReader reader) => FileRecordMapper.Map(reader);
 }

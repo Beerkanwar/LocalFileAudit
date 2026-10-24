@@ -45,9 +45,10 @@ public sealed class OllamaClient : IOllamaClient
             throw new ArgumentException("Ollama endpoint URL cannot be empty.", nameof(endpoint));
         }
 
-        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
         {
-            throw new ArgumentException($"Invalid URL format: '{endpoint}'", nameof(endpoint));
+            throw new ArgumentException($"Invalid URL format or scheme: '{endpoint}'. Only HTTP and HTTPS are permitted.", nameof(endpoint));
         }
 
         var config = _configurationService.Current;
@@ -68,6 +69,7 @@ public sealed class OllamaClient : IOllamaClient
     public async Task<AiConnectionStatus> CheckConnectionAsync(string endpoint, CancellationToken cancellationToken = default)
     {
         ValidateEndpoint(endpoint);
+
         var sw = Stopwatch.StartNew();
 
         try
@@ -92,7 +94,7 @@ public sealed class OllamaClient : IOllamaClient
                 };
             }
 
-            var json = await ReadBoundedStringAsync(response.Content, 1024 * 1024, cancellationToken).ConfigureAwait(false);
+            var json = await ReadBoundedStringAsync(response.Content, 1024 * 1024, timeoutCts.Token).ConfigureAwait(false);
             var models = ParseModelsFromJson(json);
 
             return new AiConnectionStatus
@@ -163,6 +165,11 @@ public sealed class OllamaClient : IOllamaClient
         ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
 
         var config = _configurationService.Current;
+        if (!config.AI.Enabled)
+        {
+            throw new InvalidOperationException("Local AI integration is disabled in configuration settings.");
+        }
+
         var timeoutSeconds = config.AI.TimeoutSeconds > 0 ? config.AI.TimeoutSeconds : 180;
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -197,8 +204,9 @@ public sealed class OllamaClient : IOllamaClient
 
             if (!response.IsSuccessStatusCode)
             {
-                var errText = await ReadBoundedStringAsync(response.Content, 64 * 1024, linkedCts.Token).ConfigureAwait(false);
-                throw new HttpRequestException($"Ollama inference failed with HTTP {(int)response.StatusCode}: {errText}");
+                var errText = await ReadBoundedStringAsync(response.Content, 2048, linkedCts.Token).ConfigureAwait(false);
+                var truncatedErr = errText.Length > 250 ? errText.Substring(0, 250) + "..." : errText;
+                throw new HttpRequestException($"Ollama inference failed with HTTP {(int)response.StatusCode}: {truncatedErr}");
             }
 
             var responseString = await ReadBoundedStringAsync(response.Content, MaxResponseSizeBytes, linkedCts.Token).ConfigureAwait(false);
@@ -255,6 +263,11 @@ public sealed class OllamaClient : IOllamaClient
         ArgumentNullException.ThrowIfNull(history);
 
         var config = _configurationService.Current;
+        if (!config.AI.Enabled)
+        {
+            throw new InvalidOperationException("Local AI integration is disabled in configuration settings.");
+        }
+
         var timeoutSeconds = config.AI.TimeoutSeconds > 0 ? config.AI.TimeoutSeconds : 180;
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -299,8 +312,9 @@ public sealed class OllamaClient : IOllamaClient
 
             if (!response.IsSuccessStatusCode)
             {
-                var errText = await ReadBoundedStringAsync(response.Content, 64 * 1024, linkedCts.Token).ConfigureAwait(false);
-                throw new HttpRequestException($"Ollama chat failed with HTTP {(int)response.StatusCode}: {errText}");
+                var errText = await ReadBoundedStringAsync(response.Content, 2048, linkedCts.Token).ConfigureAwait(false);
+                var truncatedErr = errText.Length > 250 ? errText.Substring(0, 250) + "..." : errText;
+                throw new HttpRequestException($"Ollama chat failed with HTTP {(int)response.StatusCode}: {truncatedErr}");
             }
 
             var responseString = await ReadBoundedStringAsync(response.Content, MaxResponseSizeBytes, linkedCts.Token).ConfigureAwait(false);

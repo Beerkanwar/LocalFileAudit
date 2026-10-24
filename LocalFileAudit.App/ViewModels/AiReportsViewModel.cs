@@ -163,7 +163,15 @@ public sealed partial class AiReportsViewModel : ViewModelBase
                     AvailableModels.Add(m);
                 }
 
-                SelectedModel = AvailableModels.FirstOrDefault() ?? "llama3.2:latest";
+                var configuredModel = _configurationService.Current.AI.ModelName;
+                if (!string.IsNullOrWhiteSpace(configuredModel) && AvailableModels.Contains(configuredModel))
+                {
+                    SelectedModel = configuredModel;
+                }
+                else
+                {
+                    SelectedModel = AvailableModels.FirstOrDefault() ?? "llama3.2:latest";
+                }
                 ConnectionStatusMessage = $"✓ Connected to Ollama ({status.AvailableModels.Count} local models available, {status.ResponseTimeMs}ms).";
             }
             else
@@ -204,6 +212,12 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     [RelayCommand]
     public async Task RunAiAnalysisAsync()
     {
+        if (!IsAiEnabled || !_configurationService.Current.AI.Enabled)
+        {
+            StatusMessage = "AI analysis is disabled in Settings. Enable it to run local inference.";
+            return;
+        }
+
         if (SelectedScan == null)
         {
             StatusMessage = "Please select a scan to analyze.";
@@ -406,6 +420,12 @@ public sealed partial class AiReportsViewModel : ViewModelBase
     [RelayCommand]
     public async Task SendChatMessageAsync()
     {
+        if (!IsAiEnabled || !_configurationService.Current.AI.Enabled)
+        {
+            ChatStatusMessage = "AI features are disabled in Settings.";
+            return;
+        }
+
         if (SelectedScan == null)
         {
             ChatStatusMessage = "Please select a target scan run first.";

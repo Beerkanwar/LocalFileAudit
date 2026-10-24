@@ -25,7 +25,7 @@ public sealed class JsonConfigurationService : IConfigurationService
     private readonly ILogger<JsonConfigurationService> _logger;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
-    private AppConfiguration _current;
+    private volatile AppConfiguration _current;
 
     public AppConfiguration Current => _current;
 
@@ -72,9 +72,31 @@ public sealed class JsonConfigurationService : IConfigurationService
                 var validation = _validator.Validate(loaded);
                 if (!validation.IsValid)
                 {
-                    _logger.LogError("Loaded configuration failed validation: {Errors}. Backing up and reverting to safe defaults.", string.Join("; ", validation.Errors));
+                    _logger.LogWarning("Loaded configuration had invalid fields: {Errors}. Backing up corrupted file and repairing per-field with safe defaults.", string.Join("; ", validation.Errors));
                     BackupCorruptedConfig();
-                    _current = new AppConfiguration();
+                    RepairInvalidFields(loaded);
+
+                    // Re-validate repaired config
+                    var revalidation = _validator.Validate(loaded);
+                    if (!revalidation.IsValid)
+                    {
+                        _logger.LogError("Repaired configuration still failed validation: {Errors}. Reverting to fresh defaults.", string.Join("; ", revalidation.Errors));
+                        _current = new AppConfiguration();
+                    }
+                    else
+                    {
+                        _current = loaded;
+                        try
+                        {
+                            await SaveInternalAsync(_current, cancellationToken).ConfigureAwait(false);
+                            _logger.LogInformation("Successfully saved repaired configuration to {ConfigPath}", _environment.ConfigFilePath);
+                        }
+                        catch (Exception saveEx)
+                        {
+                            _logger.LogWarning(saveEx, "Failed to persist repaired configuration.");
+                        }
+                    }
+
                     return _current;
                 }
 
@@ -96,6 +118,86 @@ public sealed class JsonConfigurationService : IConfigurationService
         }
     }
 
+    private static void RepairInvalidFields(AppConfiguration config)
+    {
+        var defaults = new AppConfiguration();
+
+        // Safety flags are immutable invariants
+        config.Safety.AutomaticDeletionEnabled = false;
+        config.Safety.AutomaticMoveEnabled = false;
+        config.Safety.AutomaticCopyEnabled = false;
+
+        // Scanning bounds
+        if (config.Scanning.MaxConcurrentDirectoryWorkers < 1 || config.Scanning.MaxConcurrentDirectoryWorkers > 16)
+        {
+            config.Scanning.MaxConcurrentDirectoryWorkers = defaults.Scanning.MaxConcurrentDirectoryWorkers;
+        }
+
+        if (config.Scanning.DatabaseBatchSize < 10 || config.Scanning.DatabaseBatchSize > 50000)
+        {
+            config.Scanning.DatabaseBatchSize = defaults.Scanning.DatabaseBatchSize;
+        }
+
+        // Analysis bounds
+        if (config.Analysis.LargeFileThresholdBytes <= 0)
+        {
+            config.Analysis.LargeFileThresholdBytes = defaults.Analysis.LargeFileThresholdBytes;
+        }
+
+        if (config.Analysis.OldFileAgeDays < 0)
+        {
+            config.Analysis.OldFileAgeDays = defaults.Analysis.OldFileAgeDays;
+        }
+
+        // AI bounds & endpoint
+        if (string.IsNullOrWhiteSpace(config.AI.Endpoint) || !Uri.TryCreate(config.AI.Endpoint, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            config.AI.Endpoint = defaults.AI.Endpoint;
+        }
+        else if (config.AI.RequireLocalEndpoint)
+        {
+            var isLoopback = uri.IsLoopback ||
+                             string.Equals(uri.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(uri.Host, "127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(uri.Host, "::1", StringComparison.OrdinalIgnoreCase);
+            if (!isLoopback)
+            {
+                config.AI.Endpoint = defaults.AI.Endpoint;
+            }
+        }
+
+        if (config.AI.TimeoutSeconds < 1 || config.AI.TimeoutSeconds > 600)
+        {
+            config.AI.TimeoutSeconds = defaults.AI.TimeoutSeconds;
+        }
+
+        if (config.AI.MaxPayloadCandidates < 1 || config.AI.MaxPayloadCandidates > 1000)
+        {
+            config.AI.MaxPayloadCandidates = defaults.AI.MaxPayloadCandidates;
+        }
+
+        // Logging & exclusions
+        if (config.Logging.RetainDays <= 0)
+        {
+            config.Logging.RetainDays = defaults.Logging.RetainDays;
+        }
+
+        var validLevels = new[] { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" };
+        if (string.IsNullOrWhiteSpace(config.Logging.LogLevel) || !validLevels.Contains(config.Logging.LogLevel, StringComparer.OrdinalIgnoreCase))
+        {
+            config.Logging.LogLevel = defaults.Logging.LogLevel;
+        }
+
+        if (config.Scanning.ExcludedPaths != null)
+        {
+            var invalidChars = Path.GetInvalidPathChars();
+            config.Scanning.ExcludedPaths = config.Scanning.ExcludedPaths
+                .Where(p => !string.IsNullOrWhiteSpace(p) && p.IndexOfAny(invalidChars) < 0)
+                .ToList();
+        }
+    }
+
     private void BackupCorruptedConfig()
     {
         try
@@ -105,6 +207,21 @@ public sealed class JsonConfigurationService : IConfigurationService
                 var backupPath = _environment.ConfigFilePath + $".corrupted.{DateTime.UtcNow:yyyyMMddHHmmss}.bak";
                 File.Copy(_environment.ConfigFilePath, backupPath, overwrite: true);
                 _logger.LogWarning("Backed up corrupted or invalid configuration file to {BackupPath}", backupPath);
+
+                // Prune old backups, keeping only 5 recent
+                var dir = Path.GetDirectoryName(_environment.ConfigFilePath);
+                var baseName = Path.GetFileName(_environment.ConfigFilePath);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                {
+                    var oldBackups = Directory.GetFiles(dir, $"{baseName}.corrupted.*.bak")
+                        .Select(f => new FileInfo(f))
+                        .OrderByDescending(f => f.CreationTimeUtc)
+                        .Skip(5);
+                    foreach (var old in oldBackups)
+                    {
+                        try { old.Delete(); } catch { }
+                    }
+                }
             }
         }
         catch (Exception ex)
@@ -143,7 +260,13 @@ public sealed class JsonConfigurationService : IConfigurationService
         var tempFilePath = _environment.ConfigFilePath + ".tmp";
         var json = JsonSerializer.Serialize(config, JsonOptions);
 
-        await File.WriteAllTextAsync(tempFilePath, json, cancellationToken).ConfigureAwait(false);
+        await using (var fs = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+        await using (var sw = new StreamWriter(fs))
+        {
+            await sw.WriteAsync(json.AsMemory(), cancellationToken).ConfigureAwait(false);
+            await sw.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await fs.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         // Atomic file replacement
         File.Move(tempFilePath, _environment.ConfigFilePath, overwrite: true);

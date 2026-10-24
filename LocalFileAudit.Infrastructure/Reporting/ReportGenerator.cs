@@ -371,99 +371,110 @@ public sealed class ReportGenerator : IReportGenerator
     private static string EscapeMarkdown(string value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        return value.Replace("|", "\\|").Replace("*", "\\*").Replace("_", "\\_");
+        var sanitized = value.Replace("\r", " ").Replace("\n", " ");
+        return sanitized
+            .Replace("\\", "\\\\")
+            .Replace("`", "\\`")
+            .Replace("[", "\\[")
+            .Replace("]", "\\]")
+            .Replace("|", "\\|")
+            .Replace("*", "\\*")
+            .Replace("_", "\\_");
     }
 
-    public Task<IReadOnlyList<ReportFolderInfo>> GetGeneratedReportsAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ReportFolderInfo>> GetGeneratedReportsAsync(CancellationToken cancellationToken = default)
     {
-        var reports = new List<ReportFolderInfo>();
-        var reportsDir = _environment.ReportsDirectory;
-
-        if (!Directory.Exists(reportsDir))
+        return await Task.Run(() =>
         {
-            return Task.FromResult<IReadOnlyList<ReportFolderInfo>>(reports);
-        }
+            var reports = new List<ReportFolderInfo>();
+            var reportsDir = _environment.ReportsDirectory;
 
-        try
-        {
-            var directories = Directory.GetDirectories(reportsDir);
-            foreach (var dir in directories)
+            if (!Directory.Exists(reportsDir))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var dirInfo = new DirectoryInfo(dir);
-                var manifestPath = Path.Combine(dir, "Manifest.json");
-                var htmlPath = Path.Combine(dir, "Summary.html");
-                var mdPath = Path.Combine(dir, "Summary.md");
-
-                Guid scanRunId = Guid.Empty;
-                DateTime genTime = dirInfo.CreationTimeUtc;
-                bool isComplete = false;
-                long totalFiles = 0;
-                double logicalMb = 0;
-                long errorCount = 0;
-                var reportFiles = Directory.GetFiles(dir).Select(Path.GetFileName).Where(f => f != null).Cast<string>().ToList();
-
-                if (File.Exists(manifestPath))
-                {
-                    try
-                    {
-                        var json = File.ReadAllText(manifestPath);
-                        using var doc = JsonDocument.Parse(json);
-                        var root = doc.RootElement;
-                        if (root.TryGetProperty("ScanRunId", out var runIdProp) && runIdProp.TryGetGuid(out var parsedGuid))
-                        {
-                            scanRunId = parsedGuid;
-                        }
-                        if (root.TryGetProperty("GeneratedAtUtc", out var genTimeProp) && genTimeProp.TryGetDateTime(out var parsedTime))
-                        {
-                            genTime = parsedTime;
-                        }
-                        if (root.TryGetProperty("IsCompleteScan", out var completeProp))
-                        {
-                            isComplete = completeProp.GetBoolean();
-                        }
-                        if (root.TryGetProperty("TotalFiles", out var filesProp))
-                        {
-                            totalFiles = filesProp.GetInt64();
-                        }
-                        if (root.TryGetProperty("TotalLogicalSizeMb", out var mbProp))
-                        {
-                            logicalMb = mbProp.GetDouble();
-                        }
-                        if (root.TryGetProperty("ErrorCount", out var errProp))
-                        {
-                            errorCount = errProp.GetInt64();
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to parse Manifest.json in {ReportDirectory}", dir);
-                    }
-                }
-
-                reports.Add(new ReportFolderInfo
-                {
-                    ScanRunId = scanRunId,
-                    DirectoryPath = dir,
-                    FolderName = dirInfo.Name,
-                    GeneratedAtUtc = genTime,
-                    IsCompleteScan = isComplete,
-                    TotalFiles = totalFiles,
-                    TotalLogicalSizeMb = logicalMb,
-                    ErrorCount = errorCount,
-                    ReportFiles = reportFiles,
-                    HtmlSummaryPath = File.Exists(htmlPath) ? htmlPath : null,
-                    MarkdownSummaryPath = File.Exists(mdPath) ? mdPath : null
-                });
+                return (IReadOnlyList<ReportFolderInfo>)reports;
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error scanning generated reports in {ReportsDirectory}", reportsDir);
-        }
 
-        var sorted = reports.OrderByDescending(r => r.GeneratedAtUtc).ToList();
-        return Task.FromResult<IReadOnlyList<ReportFolderInfo>>(sorted);
+            try
+            {
+                var directories = Directory.GetDirectories(reportsDir);
+                foreach (var dir in directories)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var dirInfo = new DirectoryInfo(dir);
+                    var manifestPath = Path.Combine(dir, "Manifest.json");
+                    var htmlPath = Path.Combine(dir, "Summary.html");
+                    var mdPath = Path.Combine(dir, "Summary.md");
+
+                    Guid scanRunId = Guid.Empty;
+                    DateTime genTime = dirInfo.CreationTimeUtc;
+                    bool isComplete = false;
+                    long totalFiles = 0;
+                    double logicalMb = 0;
+                    long errorCount = 0;
+                    var reportFiles = Directory.GetFiles(dir).Select(Path.GetFileName).Where(f => f != null).Cast<string>().ToList();
+
+                    if (File.Exists(manifestPath))
+                    {
+                        try
+                        {
+                            var json = File.ReadAllText(manifestPath);
+                            using var doc = JsonDocument.Parse(json);
+                            var root = doc.RootElement;
+                            if (root.TryGetProperty("ScanRunId", out var runIdProp) && runIdProp.TryGetGuid(out var parsedGuid))
+                            {
+                                scanRunId = parsedGuid;
+                            }
+                            if (root.TryGetProperty("GeneratedAtUtc", out var genTimeProp) && genTimeProp.TryGetDateTime(out var parsedTime))
+                            {
+                                genTime = parsedTime;
+                            }
+                            if (root.TryGetProperty("IsCompleteScan", out var completeProp))
+                            {
+                                isComplete = completeProp.GetBoolean();
+                            }
+                            if (root.TryGetProperty("TotalFiles", out var filesProp))
+                            {
+                                totalFiles = filesProp.GetInt64();
+                            }
+                            if (root.TryGetProperty("TotalLogicalSizeMb", out var mbProp))
+                            {
+                                logicalMb = mbProp.GetDouble();
+                            }
+                            if (root.TryGetProperty("ErrorCount", out var errProp))
+                            {
+                                errorCount = errProp.GetInt64();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to parse Manifest.json in {ReportDirectory}", dir);
+                        }
+                    }
+
+                    reports.Add(new ReportFolderInfo
+                    {
+                        ScanRunId = scanRunId,
+                        DirectoryPath = dir,
+                        FolderName = dirInfo.Name,
+                        GeneratedAtUtc = genTime,
+                        IsCompleteScan = isComplete,
+                        TotalFiles = totalFiles,
+                        TotalLogicalSizeMb = logicalMb,
+                        ErrorCount = errorCount,
+                        ReportFiles = reportFiles,
+                        HtmlSummaryPath = File.Exists(htmlPath) ? htmlPath : null,
+                        MarkdownSummaryPath = File.Exists(mdPath) ? mdPath : null
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error scanning generated reports in {ReportsDirectory}", reportsDir);
+            }
+
+            var sorted = reports.OrderByDescending(r => r.GeneratedAtUtc).ToList();
+            return (IReadOnlyList<ReportFolderInfo>)sorted;
+        }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<long> ExportFullInventoryCsvAsync(
@@ -492,7 +503,7 @@ public sealed class ReportGenerator : IReportGenerator
         {
             var config = _configurationService?.Current ?? new Core.Configuration.AppConfiguration();
             var pageSize = 2000;
-            var offset = 0;
+            long? lastId = null;
 
             var totalFilesInScan = Math.Max(1, run.FilesDiscovered);
 
@@ -515,12 +526,15 @@ public sealed class ReportGenerator : IReportGenerator
                     var query = new FileInventoryQuery
                     {
                         ScanRunId = scanRunId,
+                        SearchText = filter?.SearchText,
                         Extension = extFilter,
                         MinSizeBytes = filter?.MinSizeBytes,
-                        Offset = offset,
+                        MinModifiedUtc = filter?.MinModifiedUtc,
+                        MaxModifiedUtc = filter?.MaxModifiedUtc,
+                        AfterId = lastId,
                         Limit = pageSize,
-                        SortBy = "SizeBytes",
-                        SortDescending = true
+                        SortBy = "Id",
+                        SortDescending = false
                     };
 
                     var page = await _repository.QueryFilesAsync(query, cancellationToken).ConfigureAwait(false);
@@ -528,6 +542,8 @@ public sealed class ReportGenerator : IReportGenerator
                     {
                         break;
                     }
+
+                    lastId = page.Items[^1].Id;
 
                     var now = DateTime.UtcNow;
                     foreach (var file in page.Items)
@@ -569,11 +585,10 @@ public sealed class ReportGenerator : IReportGenerator
                         exportedCount++;
                     }
 
-                    offset += page.Items.Count;
                     var pct = Math.Min(100.0, (double)totalEvaluated / totalFilesInScan * 100.0);
                     progress?.Report(pct);
 
-                    if (offset >= page.TotalCount)
+                    if (page.Items.Count < pageSize)
                     {
                         break;
                     }

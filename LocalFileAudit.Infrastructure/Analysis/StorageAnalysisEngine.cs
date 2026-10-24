@@ -3,6 +3,7 @@ using LocalFileAudit.Core.Analysis;
 using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
+using LocalFileAudit.Infrastructure.Persistence;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 
@@ -41,22 +42,39 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         return conn;
     }
 
+    public async Task InvalidateCacheAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default)
+    {
+        if (scanRunId.HasValue)
+        {
+            _summaryCache.TryRemove(scanRunId.Value, out _);
+            try
+            {
+                await _repository.DeleteAnalysisResultsAsync(scanRunId.Value, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to delete AnalysisResults for scan {ScanRunId}", scanRunId.Value);
+            }
+        }
+        else
+        {
+            _summaryCache.Clear();
+        }
+    }
+
     public void InvalidateCache(Guid? scanRunId = null)
     {
         if (scanRunId.HasValue)
         {
             _summaryCache.TryRemove(scanRunId.Value, out _);
-            _ = Task.Run(async () =>
+            try
             {
-                try
-                {
-                    await _repository.DeleteAnalysisResultsAsync(scanRunId.Value).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Failed to delete AnalysisResults for scan {ScanRunId}", scanRunId.Value);
-                }
-            });
+                _repository.DeleteAnalysisResultsAsync(scanRunId.Value).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to synchronously delete AnalysisResults for scan {ScanRunId}", scanRunId.Value);
+            }
         }
         else
         {
@@ -147,6 +165,14 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
         if (run.Status == ScanState.Completed)
         {
+            if (_summaryCache.Count >= 10)
+            {
+                var oldest = _summaryCache.Keys.FirstOrDefault();
+                if (oldest != default)
+                {
+                    _summaryCache.TryRemove(oldest, out _);
+                }
+            }
             _summaryCache[scanRunId] = summary;
         }
         return summary;
@@ -433,15 +459,17 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         // 2. Cache miss or in-progress scan: evaluate rules from Files
         var candidates = new List<CandidateClassification>();
         var config = _configurationService.Current;
+        var extList = string.Join(", ", CandidateRuleEvaluator.AllCandidateExtensions.Select(e => $"'{e.ToLowerInvariant()}'"));
+
         await using (var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = @"
+            cmd.CommandText = $@"
                 SELECT * FROM Files
                 WHERE ScanRunId = @ScanRunId
                   AND (
                       SizeBytes >= @LargeThreshold 
-                      OR Extension IN ('.zip', '.rar', '.7z', '.tar', '.gz', '.iso', '.vhd', '.vhdx', '.mp4', '.mkv', '.avi', '.mov', '.tmp', '.bak', '.old', '.dmp', '.log')
+                      OR Extension IN ({extList})
                       OR FullPath LIKE '%\Downloads\%'
                   )
                 ORDER BY SizeBytes DESC
@@ -454,9 +482,16 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 var file = MapFileRecord(reader);
+                if (CandidateRuleEvaluator.IsProtectedPath(file.FullPath))
+                {
+                    continue;
+                }
+
                 var classification = CandidateRuleEvaluator.Classify(file, config);
 
-                if (classification.Category != CandidateCategory.KeepOnLaptop && classification.Category != CandidateCategory.Unknown)
+                if (classification.Category != CandidateCategory.KeepOnLaptop && 
+                    classification.Category != CandidateCategory.Unknown &&
+                    classification.Category != CandidateCategory.ProtectedSystem)
                 {
                     candidates.Add(classification);
                 }
@@ -481,25 +516,5 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         return sorted;
     }
 
-    private static FileRecord MapFileRecord(SqliteDataReader reader)
-    {
-        return new FileRecord
-        {
-            Id = reader.GetInt64(reader.GetOrdinal("Id")),
-            ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
-            FullPath = reader.GetString(reader.GetOrdinal("FullPath")),
-            ParentPath = reader.GetString(reader.GetOrdinal("ParentPath")),
-            FileName = reader.GetString(reader.GetOrdinal("FileName")),
-            Extension = reader.GetString(reader.GetOrdinal("Extension")),
-            SizeBytes = reader.GetInt64(reader.GetOrdinal("SizeBytes")),
-            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
-            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
-            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
-            Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
-            ObservedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
-            MetadataStatus = Enum.Parse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true),
-            HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
-            HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))
-        };
-    }
+    private static FileRecord MapFileRecord(SqliteDataReader reader) => FileRecordMapper.Map(reader);
 }

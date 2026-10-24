@@ -7,6 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.13] - 2026-10-24
+
+### Comprehensive Security, Architecture & Reliability Remediation
+- **Scan Resumption Target Integrity (H1):**
+  - Rebuilt `ScanTarget` in `FilesystemScanner.ResumeScanAsync` from the saved `ConfigurationSnapshot`, restoring `ExcludedPaths`, `RecordCloudPlaceholders`, `FollowReparsePoints`, and `LowImpactMode` to preserve scan parameters across crashes.
+- **Archive Verification Hashing & Timestamp Verification (H2):**
+  - Defaulted SHA-256 calculation to ON in `ArchiveVerificationViewModel`.
+  - Accurately labeled unhashed matches as `"Size match (unhashed - SHA-256 check was not performed)"`.
+  - Added file timestamp comparison and distinguished SHA-256 verified matches from unhashed size matches in completion toasts.
+- **Shared Path Canonicalization & Overlap Defense (H3):**
+  - Introduced `PathOverlapValidator` using `Path.GetFullPath` to detect overlapping, nested, identical, and aliased directory boundaries across both `ArchivePlannerService` and `ArchiveVerificationService`.
+- **Archive Verification Audit Guard (H4):**
+  - Added confirmation dialog requiring independent SHA-256 verification before setting `IsVerified` in `ArchivePlanViewModel`.
+- **Archive Copy Script Hardening (H5):**
+  - Added `/XO` (exclude older files) and `/DCOPY:DAT` (directory timestamps) flags to robocopy invocations in generated `copy-archive.ps1`.
+  - Added pre-checks verifying destination folder availability before copy execution.
+- **Accurate Persistence Fault Classification (H6):**
+  - Captured persistence consumer exceptions in `FilesystemScanner.ExecuteScanLoopAsync`, properly marking the scan as `ScanState.Failed` with detailed error logs instead of masking disk/database errors as user cancellations.
+- **Durable SQLite Counter Reconciliation (H7):**
+  - Reconciled file and completed directory counts directly from SQLite upon completion, cancellation, and checkpoints to maintain absolute consistency with the `Files` table.
+- **Scan Root Normalization & Nested Root Pruning (H8):**
+  - Canonicalized scan roots with `Path.GetFullPath`, pruned child roots nested inside parent roots (e.g. dropping `C:\Users` when `C:\` is scanned), and verified target directory existence prior to scan launch.
+- **Ollama Payload Bounding & Fallback Resilience (H9):**
+  - Bounded inference candidate payloads to prevent exceeding model context windows (`num_ctx`).
+  - Added automatic compact candidate retries on truncation or JSON parse errors and pinned system safety prompts.
+- **AI Markdown Injection Sanitization (M1):**
+  - Sanitized executive summaries, hotspot assessments, review plans, and safety warnings in `AiAnalysisService.SaveAiReportAsync` to neutralize markdown link and image exfiltration risks.
+  - Hardened `ReportGenerator.EscapeMarkdown` against backticks, brackets, backslashes, and newlines.
+- **Comprehensive Path & Directory Redaction (M2):**
+  - Added `PathRedactor.RedactDirectory` to redact personal intermediate directory structures in AI prompts, chat context, and largest directory summaries.
+- **Service-Level AI Enforcement (M3):**
+  - Enforced `config.AI.Enabled` directly in `OllamaClient`, `AiAnalysisService`, and `AiReportsViewModel`.
+- **Synchronized Privacy Redaction Toggles (M4):**
+  - Synchronized `RedactFilePaths` across both `Logging.RedactFilePaths` and `AI.RedactFilePaths` in `SettingsViewModel`.
+- **Database Migrations & WAL Truncation (M5):**
+  - Implemented versioned SQLite migration (`user_version = 2`) and added `CheckpointTruncateAsync()` for periodic `wal_checkpoint(TRUNCATE)` maintenance.
+- **Query & Sorting Indexes (M6):**
+  - Created composite SQLite indexes on `FileName`, `LastWriteTimeUtc`, and `FullPath` for responsive inventory sorting.
+- **Keyset Pagination for Full Exports (M7):**
+  - Rewrote `ExportFullInventoryCsvAsync` with `AfterId` keyset pagination and honored `SearchText`, `MinModifiedUtc`, and `MaxModifiedUtc` filters.
+- **Candidate Rule Alignment & Pre-Filtering (M8):**
+  - Aligned analysis classification rules with `CandidateRuleEvaluator.AllCandidateExtensions`, pre-filtered protected items, and added truncation transparency flags.
+- **Awaitable Cache Invalidation & Bounded Memory (M9):**
+  - Implemented awaitable `InvalidateCacheAsync` and bounded in-memory cache to 10 entries.
+- **Duplicate Hashing Throttling & Scaling (M10, M12):**
+  - Capped concurrent duplicate hashers to prevent spinning disk thrash, tightened duplicate timestamp tolerance to 1 second, and used `FileShare.ReadWrite`.
+- **Reparse Cycle Prevention (M11):**
+  - Added visited inode/path tracking to prevent infinite recursive loops when `FollowReparsePoints` is true.
+- **Comparison Root Mismatch Diagnostics (M13):**
+  - Added baseline and comparison root mismatch warning banners and case-insensitive comparison joins.
+- **Non-Dropping Inventory Search & Keyset Virtualization (M14):**
+  - Cancelled in-flight queries rather than dropping keystrokes, and evaluated age filter cutoffs dynamically at query execution time.
+- **Eliminated Double Initialization & Debounced Search (M15):**
+  - Eliminated redundant viewmodel loads and debounced inventory/compare filters with 200ms cancellation tokens.
+- **Scanning Guards for Scan Deletion (M16):**
+  - Added `IsScanning` guard and confirmation prompts before deleting scan runs.
+- **Configuration Persistence & Per-Field Repair (M17, M18, M19, M20):**
+  - Preserved `RecordCloudPlaceholders` on save, repaired invalid configuration fields per-field rather than reverting all settings, used `AppEnvironment.BackupsDirectory`, and pruned backups keeping 5 recent.
+- **Model Selection Retention (M21):**
+  - Preserved configured `ModelName` during connection tests in `AiReportsViewModel`.
+- **Dependency & Supply Chain Cleanup (M22, L2):**
+  - Completely removed heavy `System.Management.Automation` and vulnerable `System.Security.Cryptography.Pkcs` test packages.
+  - Hardened vulnerability audit step in CI to fail immediately if feeds are unreachable or errors occur.
+  - Bounded log files to 10 MB with rotation, stripped log injection newlines, and removed dead console logging.
+- **Dispatcher Exception Sanitization (L1):**
+  - Sanitized error messages in WPF unhandled exception dialogs using `PathRedactor.Redact`.
+- **Startup Integrity & Documentation Alignment (L12, L13):**
+  - Added `PRAGMA quick_check` verification on startup, added maintainer security contact email to `SECURITY.md`, and synchronized documentation drift across `README.md`, `ARCHITECTURE.md`, `USER_GUIDE.md`, and `PRIVACY.md`.
+
+---
+
 ## [1.3.12] - 2026-10-24
 
 ### Security & Architecture Audit Remediation

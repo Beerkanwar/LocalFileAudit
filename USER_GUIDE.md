@@ -76,7 +76,7 @@ Navigate to **Run Comparison**:
 1. Pick a **Baseline Scan Run** and a **Comparison Scan Run**.
 2. Click **⚖ Compare Runs**:
    - Compares millions of records by `FullPath`.
-   - Identifies `New`, `Deleted`, `Modified` (size or timestamp delta), and `Unchanged` files.
+   - Identifies `New`, `Deleted`, and `Modified` (size or timestamp delta) files.
    - Visualizes extension-level storage deltas and offers one-click CSV export.
 
 ---
@@ -98,7 +98,7 @@ Navigate to **Archive Plan**:
 
 Navigate to **Archive Verifier**:
 1. Pick your **Source Directory** and **Destination Directory** (nested directory recursion guard prevents overlapping selections).
-2. Check **Calculate SHA-256 Hashes** if cryptographic match verification is desired.
+2. Check **Calculate SHA-256 Hashes** (enabled by default) for cryptographic match verification.
 3. Click **✓ Verify Archive**:
    - Opens files strictly with `FileAccess.Read` on both source and destination.
    - Maps relative paths and detects: `Match`, `MissingAtDestination`, `SizeMismatch`, `HashMismatch`, and `ExtraAtDestination`.
@@ -123,5 +123,5 @@ Navigate to **AI Reports**:
 In **Settings**:
 - **Safety Invariants:** Review permanent, hardcoded read-only guarantees (automatic deletion, move, and copy are permanently disabled).
 - **Ollama Settings:** Configure model name, timeout (seconds), and maximum request payload limits.
-- **Database Backup:** Click **📦 Backup Database (Online Snapshot)** to create a clean, consistent snapshot of your SQLite inventory using `VACUUM INTO`.
+- **Database Backup:** Click **📦 Backup Database (Online Snapshot)** to create a clean, consistent snapshot of your SQLite inventory using SQLite's online backup engine.
 - **Open Data Directories:** Quick shortcuts to open the database, logs, and reports directories in Windows Explorer.

@@ -35,7 +35,8 @@ public static class ServiceCollectionExtensions
         })
         .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
         {
-            AllowAutoRedirect = false
+            AllowAutoRedirect = false,
+            UseProxy = false
         });
         services.AddSingleton<IAiAnalysisService, LocalFileAudit.Infrastructure.AI.AiAnalysisService>();
 

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
@@ -47,10 +48,10 @@ public sealed class AiAnalysisService : IAiAnalysisService
         var payload = BuildInferencePayload(summary, redactPaths);
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
-    private object BuildInferencePayload(StorageMetricsSummary summary, bool redactPaths)
+    private object BuildInferencePayload(StorageMetricsSummary summary, bool redactPaths, int? maxCandidatesOverride = null)
     {
-        var configured = _configurationService.Current.AI.MaxPayloadCandidates;
-        var maxCandidates = Math.Clamp(configured > 0 ? configured : 25, 1, 1000);
+        var configured = maxCandidatesOverride ?? _configurationService.Current.AI.MaxPayloadCandidates;
+        var maxCandidates = Math.Clamp(configured > 0 ? configured : 25, 1, 100);
 
         var uniqueCandidates = summary.ReviewCandidates
             .GroupBy(c => c.FileRecordId)
@@ -76,7 +77,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
             }),
             LargestDirectories = summary.LargestDirectories.Take(8).Select(d => new
             {
-                Path = redactPaths ? PathRedactor.Redact(d.DirectoryPath) : d.DirectoryPath,
+                Path = redactPaths ? PathRedactor.RedactDirectory(d.DirectoryPath) : d.DirectoryPath,
                 DirectSizeMb = Math.Round(d.DirectSizeBytes / (1024.0 * 1024.0), 2)
             }),
             CandidatesForReview = uniqueCandidates.Select(c => new
@@ -145,6 +146,11 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         CancellationToken cancellationToken = default)
     {
         var config = _configurationService.Current;
+        if (!config.AI.Enabled)
+        {
+            throw new InvalidOperationException("Local AI integration is disabled in configuration settings.");
+        }
+
         var endpoint = config.AI.Endpoint;
 
         _logger.LogInformation("Starting AI analysis for scan {ScanRunId} with model {Model} at {Endpoint}", scanRunId, model, endpoint);
@@ -166,9 +172,32 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
             var prompt = JsonSerializer.Serialize(payload);
             var system = GetSystemInstructions();
 
-            var jsonResult = await _ollamaClient.GenerateJsonAsync(endpoint, model, system, prompt, cancellationToken).ConfigureAwait(false);
+            string jsonResult;
+            try
+            {
+                jsonResult = await _ollamaClient.GenerateJsonAsync(endpoint, model, system, prompt, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception genEx) when (genEx is not OperationCanceledException)
+            {
+                _logger.LogWarning(genEx, "Initial AI inference generation failed; retrying once with reduced candidate slice (10 candidates)...");
+                var retryPayload = BuildInferencePayload(summary, redactPaths, maxCandidatesOverride: 10);
+                var retryPrompt = JsonSerializer.Serialize(retryPayload);
+                jsonResult = await _ollamaClient.GenerateJsonAsync(endpoint, model, system, retryPrompt, cancellationToken).ConfigureAwait(false);
+            }
 
-            var validatedResponse = ValidateAndParseResponse(jsonResult, summary, model);
+            AiAnalysisResponse validatedResponse;
+            try
+            {
+                validatedResponse = ValidateAndParseResponse(jsonResult, summary, model);
+            }
+            catch (Exception parseEx) when (parseEx is JsonException or FormatException)
+            {
+                _logger.LogWarning(parseEx, "Initial AI response JSON parsing failed; retrying once with compact candidate slice (10 candidates)...");
+                var retryPayload = BuildInferencePayload(summary, redactPaths, maxCandidatesOverride: 10);
+                var retryPrompt = JsonSerializer.Serialize(retryPayload);
+                jsonResult = await _ollamaClient.GenerateJsonAsync(endpoint, model, system, retryPrompt, cancellationToken).ConfigureAwait(false);
+                validatedResponse = ValidateAndParseResponse(jsonResult, summary, model);
+            }
 
             // Persist report atomically
             var reportPath = await SaveAiReportAsync(scanRunId, model, validatedResponse, cancellationToken).ConfigureAwait(false);
@@ -179,6 +208,11 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
 
             _logger.LogInformation("AI analysis completed successfully for scan {ScanRunId}", scanRunId);
             return validatedResponse;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("AI analysis for scan {ScanRunId} was cancelled by user.", scanRunId);
+            throw;
         }
         catch (Exception ex)
         {
@@ -331,10 +365,10 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         sb.AppendLine("> Never delete or archive files based on AI recommendations alone without manual verification.");
         sb.AppendLine();
         sb.AppendLine("## Executive Summary");
-        sb.AppendLine(response.ExecutiveSummary);
+        sb.AppendLine(SanitizeMarkdownBody(response.ExecutiveSummary));
         sb.AppendLine();
         sb.AppendLine("## Storage Hotspots Assessment");
-        sb.AppendLine(response.StorageHotspotsAssessment);
+        sb.AppendLine(SanitizeMarkdownBody(response.StorageHotspotsAssessment));
         sb.AppendLine();
         sb.AppendLine("## AI Review Candidates & Recommendations");
         sb.AppendLine("| Candidate | Suggested Category | Confidence | Evidence | Explanation | Verification Step |");
@@ -349,14 +383,14 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         sb.AppendLine("## Prioritized Review Plan");
         foreach (var p in response.PrioritizedReviewPlan)
         {
-            sb.AppendLine($"- {p}");
+            sb.AppendLine($"- {SanitizeMarkdownBody(p)}");
         }
 
         sb.AppendLine();
         sb.AppendLine("## Safety Warnings & Verification Guidelines");
         foreach (var w in response.SafetyWarnings)
         {
-            sb.AppendLine($"- ⚠ {w}");
+            sb.AppendLine($"- ⚠ {SanitizeMarkdownBody(w)}");
         }
 
         sb.AppendLine();
@@ -479,6 +513,11 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         ArgumentException.ThrowIfNullOrWhiteSpace(userMessage);
 
         var config = _configurationService.Current;
+        if (!config.AI.Enabled)
+        {
+            throw new InvalidOperationException("Local AI integration is disabled in configuration settings.");
+        }
+
         var model = !string.IsNullOrWhiteSpace(modelOverride)
             ? modelOverride
             : (!string.IsNullOrWhiteSpace(config.AI.ModelName) ? config.AI.ModelName : "qwen2.5:7b");
@@ -493,7 +532,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
             foreach (var cid in candidateIdsContext)
             {
                 var f = await _repository.GetFileByIdAsync(cid, cancellationToken).ConfigureAwait(false);
-                if (f != null)
+                if (f != null && f.ScanRunId == scanRunId)
                 {
                     var fileName = shouldRedact ? PathRedactor.RedactFileName(f.FileName, f.Id) : f.FileName;
                     candidateContextList.Add($"[File Context: Name={fileName}, Size={f.SizeBytes:N0} bytes, Ext={f.Extension}, Modified={f.LastWriteTimeUtc:yyyy-MM-dd}]");
@@ -547,5 +586,15 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
 
         await _repository.InsertChatMessageAsync(assistantRecord, cancellationToken).ConfigureAwait(false);
         return assistantRecord;
+    }
+
+    public static string SanitizeMarkdownBody(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var sanitized = text;
+        sanitized = Regex.Replace(sanitized, @"<[^>]*>", " ");
+        sanitized = Regex.Replace(sanitized, @"!\[(.*?)\]\((.*?)\)", "[$1]($2)");
+        sanitized = Regex.Replace(sanitized, @"\[(.*?)\]\((?:https?|file|data|javascript):[^\)]*\)", "$1");
+        return sanitized.Trim();
     }
 }

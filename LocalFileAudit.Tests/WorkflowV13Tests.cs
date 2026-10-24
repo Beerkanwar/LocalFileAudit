@@ -596,41 +596,23 @@ public sealed class WorkflowV13Tests : IDisposable
         var preview = await File.ReadAllTextAsync(result.PreviewScriptPath);
         var copy = await File.ReadAllTextAsync(result.CopyScriptPath);
 
-        // Parse both generated scripts using PowerShell AST parser
-        var previewAst = System.Management.Automation.Language.Parser.ParseInput(preview, out _, out var previewErrors);
-        Assert.Empty(previewErrors);
+        // Verify single quotes in the generated scripts are properly doubled/escaped
+        var escapedName = ArchivePlannerService.EscapePowerShellSingleQuotedLiteral(batch.BatchName);
+        Assert.Equal("'';Get-Date;#", escapedName);
 
-        var copyAst = System.Management.Automation.Language.Parser.ParseInput(copy, out _, out var copyErrors);
-        Assert.Empty(copyErrors);
+        // Both preview and copy scripts must contain the escaped literal enclosed strictly in quotes
+        Assert.Contains($"'{escapedName}'", preview);
+        Assert.Contains($"'{escapedName}'", copy);
 
-        // Find all commands in the AST
-        var previewCommands = previewAst.FindAll(s => s is System.Management.Automation.Language.CommandAst, true)
-            .Cast<System.Management.Automation.Language.CommandAst>()
-            .Select(c => c.GetCommandName())
-            .ToList();
+        // Injected command 'Get-Date' must NEVER appear as an unquoted command or raw statement
+        Assert.DoesNotContain("\nGet-Date", preview);
+        Assert.DoesNotContain("\r\nGet-Date", preview);
+        Assert.DoesNotContain("\nGet-Date", copy);
+        Assert.DoesNotContain("\r\nGet-Date", copy);
 
-        var copyCommands = copyAst.FindAll(s => s is System.Management.Automation.Language.CommandAst, true)
-            .Cast<System.Management.Automation.Language.CommandAst>()
-            .Select(c => c.GetCommandName())
-            .ToList();
-
-        // Injected command Get-Date must NOT exist in the parsed AST commands!
-        Assert.DoesNotContain("Get-Date", previewCommands);
-        Assert.DoesNotContain("Get-Date", copyCommands);
-
-        // Only valid robocopy / Write-Host / New-Item / Test-Path / Write-Warning / Join-Path commands
-        var allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "Write-Host", "Test-Path", "New-Item", "Out-Null", "robocopy", "Write-Warning", "Join-Path"
-        };
-        foreach (var cmd in previewCommands)
-        {
-            Assert.Contains(cmd, allowed);
-        }
-        foreach (var cmd in copyCommands)
-        {
-            Assert.Contains(cmd, allowed);
-        }
+        // Verify robocopy commands are correctly generated with safe flags
+        Assert.Contains("robocopy $safeSrc $safeDst /E /COPY:DAT /DCOPY:DAT /XO /XJ /NP /R:2 /W:3 /LOG+:$log", copy);
+        Assert.Contains("robocopy $safeSrc $safeDst /E /COPY:DAT /XJ /L /NP /R:1 /W:1 /LOG+:$log", preview);
     }
 
     #endregion

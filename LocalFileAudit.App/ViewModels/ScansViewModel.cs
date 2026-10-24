@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LocalFileAudit.Core.Interfaces;
@@ -113,6 +114,20 @@ public sealed partial class ScansViewModel : ViewModelBase
     [RelayCommand]
     public async Task DeleteScanHistoryAsync(Guid scanRunId)
     {
+        if (IsScanning)
+        {
+            MessageBox.Show("Cannot delete scan records while a scan is actively running or resuming.", "Scan Active", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            $"Are you sure you want to remove scan run record '{scanRunId}' from the database?\n\nThis deletes inventory and analysis records from SQLite. Your physical files on disk will NOT be touched.",
+            "Confirm Delete Scan History",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
+
         try
         {
             await _repository.DiscardScanRunAsync(scanRunId);
@@ -152,6 +167,9 @@ public sealed partial class ScansViewModel : ViewModelBase
         AvailableDrives.Clear();
         try
         {
+            var config = _configurationService.Current;
+            var defaultSelected = config.Scanning.IncludeFixedDrivesByDefault;
+
             var drives = DriveInfo.GetDrives();
             foreach (var d in drives)
             {
@@ -164,7 +182,7 @@ public sealed partial class ScansViewModel : ViewModelBase
                         Name = d.Name,
                         RootPath = d.RootDirectory.FullName,
                         Description = $"{d.Name} ({d.DriveFormat}, {totalGb} GB Total, {freeGb} GB Free)",
-                        IsSelected = true
+                        IsSelected = defaultSelected
                     });
                 }
             }
@@ -204,7 +222,14 @@ public sealed partial class ScansViewModel : ViewModelBase
 
         if (!string.IsNullOrWhiteSpace(CustomDirectoryPath))
         {
-            selectedRoots.Add(CustomDirectoryPath.Trim());
+            var custom = CustomDirectoryPath.Trim();
+            if (!Directory.Exists(custom))
+            {
+                ScanStatusText = $"Custom directory does not exist: {custom}";
+                MessageBox.Show($"The specified custom directory does not exist or is inaccessible:\n\n{custom}", "Directory Not Found", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            selectedRoots.Add(custom);
         }
 
         if (selectedRoots.Count == 0)
@@ -219,7 +244,8 @@ public sealed partial class ScansViewModel : ViewModelBase
             TargetPaths = selectedRoots,
             ExcludedPaths = config.Scanning.ExcludedPaths.ToList(),
             FollowReparsePoints = config.Scanning.FollowReparsePoints,
-            LowImpactMode = config.Scanning.LowImpactMode
+            LowImpactMode = config.Scanning.LowImpactMode,
+            RecordCloudPlaceholders = config.Scanning.RecordCloudPlaceholders
         };
 
         _scanCts = new CancellationTokenSource();
@@ -350,6 +376,14 @@ public sealed partial class ScansViewModel : ViewModelBase
     public async Task DiscardIncompleteScanAsync()
     {
         if (IncompleteScan == null || IsScanning) return;
+
+        var confirm = MessageBox.Show(
+            $"Are you sure you want to discard incomplete scan '{IncompleteScan.Id}'?\n\nThis removes the incomplete run checkpoints from SQLite database. Your physical files on disk will NOT be touched.",
+            "Confirm Discard Scan",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (confirm != MessageBoxResult.Yes) return;
 
         try
         {

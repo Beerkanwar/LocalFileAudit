@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
+using LocalFileAudit.Infrastructure.Scanning;
 using Microsoft.Extensions.Logging;
 
 namespace LocalFileAudit.Infrastructure.Archive;
@@ -66,7 +67,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
         };
 
         // 1. Enumerate source files (Skipping junctions/reparse points to avoid runaway loops & phantom missing files)
-        var sourceFiles = new Dictionary<string, (string FullPath, long SizeBytes)>(StringComparer.OrdinalIgnoreCase);
+        var sourceFiles = new Dictionary<string, (string FullPath, long SizeBytes, DateTime LastWriteTimeUtc)>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in EnumerateFilesSafeNoReparse(fullSource, _logger, summary.EnumerationErrors, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -74,7 +75,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             {
                 var fi = new FileInfo(file);
                 var rel = Path.GetRelativePath(fullSource, file);
-                sourceFiles[rel] = (file, fi.Length);
+                sourceFiles[rel] = (file, fi.Length, fi.LastWriteTimeUtc);
                 summary.TotalSourceFiles++;
                 summary.TotalSourceSizeBytes += fi.Length;
             }
@@ -88,7 +89,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
         progress?.Report(25.0);
 
         // 2. Enumerate destination files (Skipping junctions/reparse points)
-        var destFiles = new Dictionary<string, (string FullPath, long SizeBytes)>(StringComparer.OrdinalIgnoreCase);
+        var destFiles = new Dictionary<string, (string FullPath, long SizeBytes, DateTime LastWriteTimeUtc)>(StringComparer.OrdinalIgnoreCase);
         foreach (var file in EnumerateFilesSafeNoReparse(fullDest, _logger, summary.EnumerationErrors, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -96,7 +97,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             {
                 var fi = new FileInfo(file);
                 var rel = Path.GetRelativePath(fullDest, file);
-                destFiles[rel] = (file, fi.Length);
+                destFiles[rel] = (file, fi.Length, fi.LastWriteTimeUtc);
                 summary.TotalDestinationFiles++;
                 summary.TotalDestinationSizeBytes += fi.Length;
             }
@@ -150,10 +151,13 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             }
             else if (inSource && inDest)
             {
+                var timeDiff = Math.Abs((sourceInfo.LastWriteTimeUtc - destInfo.LastWriteTimeUtc).TotalSeconds);
+                var timeNote = timeDiff > 2 ? $" (Timestamp discrepancy: {sourceInfo.LastWriteTimeUtc:u} vs {destInfo.LastWriteTimeUtc:u})" : string.Empty;
+
                 if (sourceInfo.SizeBytes != destInfo.SizeBytes)
                 {
                     item.Status = VerificationStatus.SizeMismatch;
-                    item.Details = $"Size discrepancy: Source={sourceInfo.SizeBytes:N0} B vs Dest={destInfo.SizeBytes:N0} B.";
+                    item.Details = $"Size discrepancy: Source={sourceInfo.SizeBytes:N0} B vs Dest={destInfo.SizeBytes:N0} B.{timeNote}";
                     summary.SizeMismatchCount++;
                 }
                 else if (calculateSha256)
@@ -165,7 +169,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
                 else
                 {
                     item.Status = VerificationStatus.Match;
-                    item.Details = "Verified match (size matches; hash check was skipped).";
+                    item.Details = $"Size match (unhashed - SHA-256 check was not performed).{timeNote}";
                     summary.MatchCount++;
                 }
             }
@@ -268,6 +272,18 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
 
             foreach (var file in files)
             {
+                try
+                {
+                    var fi = new FileInfo(file);
+                    if ((fi.Attributes & FileAttributes.ReparsePoint) != 0 && !FilesystemScanner.IsCloudPlaceholder(fi.Attributes))
+                    {
+                        continue;
+                    }
+                }
+                catch
+                {
+                    // Ignore attribute inspection errors
+                }
                 yield return file;
             }
 
@@ -327,11 +343,6 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 16384, useAsync: true))
             await using (var writer = new StreamWriter(stream, Encoding.UTF8))
             {
-                if (summary.IsPartial)
-                {
-                    await writer.WriteLineAsync("# WARNING: Archive verification was PARTIAL. Unreadable files or directories were encountered. Do NOT delete original source files.");
-                }
-
                 await writer.WriteLineAsync("Status,RelativePath,SourceSizeBytes,DestinationSizeBytes,SourceHash,DestinationHash,Details,SourceFullPath,DestinationFullPath");
 
                 foreach (var item in summary.Items)
@@ -378,37 +389,22 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
 
     private static void ValidatePathsDoNotOverlap(string source, string destination)
     {
-        var sep = Path.DirectorySeparatorChar.ToString();
-        var altSep = Path.AltDirectorySeparatorChar.ToString();
-
-        var srcNorm = source.Replace(altSep, sep).TrimEnd(Path.DirectorySeparatorChar) + sep;
-        var dstNorm = destination.Replace(altSep, sep).TrimEnd(Path.DirectorySeparatorChar) + sep;
-
-        if (string.Equals(srcNorm, dstNorm, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Source and Destination cannot be the exact same directory.");
-        }
-
-        if (dstNorm.StartsWith(srcNorm, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Destination directory cannot be nested inside the source directory.");
-        }
-
-        if (srcNorm.StartsWith(dstNorm, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Source directory cannot be nested inside the destination directory.");
-        }
+        PathOverlapValidator.ValidateDoNotOverlap(source, destination);
     }
 
     private async Task<string?> ComputeFileSha256ReadOnlyAsync(string filePath, CancellationToken cancellationToken)
     {
         try
         {
-            // Strictly FileAccess.Read, FileShare.Read to ensure read-only safety
-            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 65536, useAsync: true);
+            // FileAccess.Read, FileShare.ReadWrite to avoid locking out concurrent writers or readers
+            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536, useAsync: true);
             using var sha = SHA256.Create();
             var hashBytes = await sha.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
             return Convert.ToHexString(hashBytes).ToLowerInvariant();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -64,5 +64,36 @@ public static partial class PathRedactor
             ? $"candidate_{candidateId.Value}{ext}"
             : $"file_[REDACTED]{ext}";
     }
+
+    /// <summary>
+    /// Redacts directory paths when AI or logging redaction is active.
+    /// Retains only the root volume and the immediate parent directory name
+    /// to provide classification context without exposing proprietary customer/project folder hierarchies.
+    /// </summary>
+    public static string RedactDirectory(string? dirPath)
+    {
+        if (string.IsNullOrWhiteSpace(dirPath)) return string.Empty;
+        var redacted = Redact(dirPath);
+
+        try
+        {
+            var trimmed = dirPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var parentName = Path.GetFileName(trimmed);
+            var root = Path.GetPathRoot(trimmed);
+
+            if (!string.IsNullOrEmpty(parentName))
+            {
+                return string.IsNullOrEmpty(root)
+                    ? $"[PATH_REDACTED]\\{parentName}"
+                    : $"{root}...\\{parentName}";
+            }
+        }
+        catch
+        {
+            // fallback
+        }
+
+        return redacted;
+    }
 }
 

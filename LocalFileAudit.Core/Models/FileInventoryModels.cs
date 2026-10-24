@@ -17,6 +17,7 @@ public sealed class FileInventoryQuery
     public bool SortDescending { get; set; } = true;
     public int Offset { get; set; } = 0;
     public int Limit { get; set; } = 100;
+    public long? AfterId { get; set; }
 }
 
 /// <summary>

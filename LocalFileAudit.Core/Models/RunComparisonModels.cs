@@ -45,4 +45,5 @@ public sealed class RunComparisonResult
     public long NetStorageDeltaBytes { get; set; }
     public List<FileDeltaRecord> Deltas { get; set; } = new();
     public List<ExtensionDelta> ExtensionDeltas { get; set; } = new();
+    public string? WarningMessage { get; set; }
 }

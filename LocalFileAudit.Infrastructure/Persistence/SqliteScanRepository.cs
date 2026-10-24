@@ -336,6 +336,17 @@ public sealed class SqliteScanRepository : IScanRepository
         return dirs;
     }
 
+    public async Task<long> GetCompletedDirectoryCountForScanAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(1) FROM Directories WHERE ScanRunId = @ScanRunId AND Status = 'Completed';";
+        cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+
+        var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        return Convert.ToInt64(result);
+    }
+
     public async Task InsertFileBatchAsync(IEnumerable<FileRecord> files, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(files);
@@ -538,6 +549,12 @@ public sealed class SqliteScanRepository : IScanRepository
             parameters.Add(new SqliteParameter("@MaxModifiedUtc", query.MaxModifiedUtc.Value.ToString("o")));
         }
 
+        if (query.AfterId.HasValue)
+        {
+            whereConditions.Add("Id > @AfterId");
+            parameters.Add(new SqliteParameter("@AfterId", query.AfterId.Value));
+        }
+
         var whereClause = whereConditions.Count > 0 ? "WHERE " + string.Join(" AND ", whereConditions) : "";
 
         long totalCount;
@@ -552,34 +569,43 @@ public sealed class SqliteScanRepository : IScanRepository
             totalCount = Convert.ToInt64(countResult);
         }
 
-        var sortColumn = query.SortBy?.ToLowerInvariant() switch
-        {
-            "filename" => "FileName",
-            "extension" => "Extension",
-            "lastwritetimeutc" => "LastWriteTimeUtc",
-            "fullpath" => "FullPath",
-            _ => "SizeBytes"
-        };
-        var sortDirection = query.SortDescending ? "DESC" : "ASC";
+        var isKeysetPaging = query.AfterId.HasValue || string.Equals(query.SortBy, "Id", StringComparison.OrdinalIgnoreCase);
+        var sortColumn = isKeysetPaging
+            ? "Id"
+            : (query.SortBy?.ToLowerInvariant() switch
+            {
+                "filename" => "FileName",
+                "extension" => "Extension",
+                "lastwritetimeutc" => "LastWriteTimeUtc",
+                "fullpath" => "FullPath",
+                _ => "SizeBytes"
+            });
+        var sortDirection = (isKeysetPaging && query.SortBy == null) ? "ASC" : (query.SortDescending ? "DESC" : "ASC");
 
-        var pageSize = Math.Clamp(query.Limit, 1, 500);
+        var pageSize = Math.Clamp(query.Limit, 1, 5000);
         var offset = Math.Max(0, query.Offset);
 
         var items = new List<FileRecord>();
         await using (var dataCmd = connection.CreateCommand())
         {
-            dataCmd.CommandText = $"SELECT * FROM Files {whereClause} ORDER BY {sortColumn} {sortDirection} LIMIT @Limit OFFSET @Offset;";
+            dataCmd.CommandText = isKeysetPaging && query.Offset == 0
+                ? $"SELECT * FROM Files {whereClause} ORDER BY {sortColumn} {sortDirection} LIMIT @Limit;"
+                : $"SELECT * FROM Files {whereClause} ORDER BY {sortColumn} {sortDirection} LIMIT @Limit OFFSET @Offset;";
+
             foreach (var p in parameters)
             {
                 dataCmd.Parameters.Add(new SqliteParameter(p.ParameterName, p.Value));
             }
             dataCmd.Parameters.AddWithValue("@Limit", pageSize);
-            dataCmd.Parameters.AddWithValue("@Offset", offset);
+            if (!isKeysetPaging || query.Offset > 0)
+            {
+                dataCmd.Parameters.AddWithValue("@Offset", offset);
+            }
 
             await using var reader = await dataCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                items.Add(MapFileRecord(reader));
+                items.Add(FileRecordMapper.Map(reader));
             }
         }
 
@@ -587,7 +613,7 @@ public sealed class SqliteScanRepository : IScanRepository
         {
             Items = items,
             TotalCount = totalCount,
-            PageNumber = (offset / pageSize) + 1,
+            PageNumber = isKeysetPaging ? 1 : ((offset / pageSize) + 1),
             PageSize = pageSize
         };
     }
@@ -623,34 +649,34 @@ public sealed class SqliteScanRepository : IScanRepository
     public async Task BackupDatabaseAsync(string destinationPath, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(destinationPath);
+
+        var fullSource = Path.GetFullPath(_initializer.DatabasePath);
+        var fullDest = Path.GetFullPath(destinationPath);
+        if (string.Equals(fullSource, fullDest, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Backup destination path cannot be the same file as the active database.");
+        }
+
         var dir = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(dir))
         {
             Directory.CreateDirectory(dir);
         }
 
-        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        await using var sourceConn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        var destConnString = new SqliteConnectionStringBuilder
         {
-            await using var sourceConn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            var destConnString = new SqliteConnectionStringBuilder
-            {
-                DataSource = destinationPath,
-                Mode = SqliteOpenMode.ReadWriteCreate,
-                Cache = SqliteCacheMode.Private,
-                DefaultTimeout = 30
-            }.ToString();
+            DataSource = destinationPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Private,
+            DefaultTimeout = 30
+        }.ToString();
 
-            await using var destConn = new SqliteConnection(destConnString);
-            await destConn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var destConn = new SqliteConnection(destConnString);
+        await destConn.OpenAsync(cancellationToken).ConfigureAwait(false);
 
-            sourceConn.BackupDatabase(destConn);
-            _logger.LogInformation("Database successfully backed up online to {DestinationPath}", destinationPath);
-        }
-        finally
-        {
-            _writeLock.Release();
-        }
+        sourceConn.BackupDatabase(destConn);
+        _logger.LogInformation("Database successfully backed up online to {DestinationPath}", destinationPath);
     }
 
     public async Task InsertAiReportAsync(AiReportRecord report, CancellationToken cancellationToken = default)
@@ -833,6 +859,12 @@ public sealed class SqliteScanRepository : IScanRepository
             TargetTimeUtc = targetRun.StartTimeUtc
         };
 
+        if (!string.Equals(baselineRun.SelectedDrives, targetRun.SelectedDrives, StringComparison.OrdinalIgnoreCase))
+        {
+            result.WarningMessage = $"Notice: Baseline scan roots ({baselineRun.SelectedDrives}) differ from Target scan roots ({targetRun.SelectedDrives}). New/Deleted differences may reflect differing scan scopes rather than file operations.";
+            _logger.LogWarning("Comparing runs with mismatched scan roots: Baseline={BaselineRoots}, Target={TargetRoots}", baselineRun.SelectedDrives, targetRun.SelectedDrives);
+        }
+
         var extDict = new Dictionary<string, ExtensionDelta>(StringComparer.OrdinalIgnoreCase);
 
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -844,7 +876,7 @@ public sealed class SqliteScanRepository : IScanRepository
                    a.LastWriteTimeUtc AS BaselineModifiedUtc, NULL AS TargetModifiedUtc,
                    'Deleted' AS DeltaType
             FROM Files a
-            LEFT JOIN Files b ON b.ScanRunId = @TargetRunId AND b.FullPath = a.FullPath
+            LEFT JOIN Files b ON b.ScanRunId = @TargetRunId AND b.FullPath = a.FullPath COLLATE NOCASE
             WHERE a.ScanRunId = @BaselineRunId AND b.Id IS NULL
 
             UNION ALL
@@ -854,7 +886,7 @@ public sealed class SqliteScanRepository : IScanRepository
                    NULL AS BaselineModifiedUtc, b.LastWriteTimeUtc AS TargetModifiedUtc,
                    'New' AS DeltaType
             FROM Files b
-            LEFT JOIN Files a ON a.ScanRunId = @BaselineRunId AND a.FullPath = b.FullPath
+            LEFT JOIN Files a ON a.ScanRunId = @BaselineRunId AND a.FullPath = b.FullPath COLLATE NOCASE
             WHERE b.ScanRunId = @TargetRunId AND a.Id IS NULL
 
             UNION ALL
@@ -864,7 +896,7 @@ public sealed class SqliteScanRepository : IScanRepository
                    a.LastWriteTimeUtc AS BaselineModifiedUtc, b.LastWriteTimeUtc AS TargetModifiedUtc,
                    'Modified' AS DeltaType
             FROM Files a
-            INNER JOIN Files b ON b.ScanRunId = @TargetRunId AND b.FullPath = a.FullPath
+            INNER JOIN Files b ON b.ScanRunId = @TargetRunId AND b.FullPath = a.FullPath COLLATE NOCASE
             WHERE a.ScanRunId = @BaselineRunId
               AND (a.SizeBytes != b.SizeBytes OR a.LastWriteTimeUtc IS NOT b.LastWriteTimeUtc)
             ORDER BY 1 ASC;
@@ -1049,27 +1081,7 @@ public sealed class SqliteScanRepository : IScanRepository
         }
     }
 
-    private static FileRecord MapFileRecord(SqliteDataReader reader)
-    {
-        return new FileRecord
-        {
-            Id = reader.GetInt64(reader.GetOrdinal("Id")),
-            ScanRunId = Guid.Parse(reader.GetString(reader.GetOrdinal("ScanRunId"))),
-            FullPath = reader.GetString(reader.GetOrdinal("FullPath")),
-            ParentPath = reader.GetString(reader.GetOrdinal("ParentPath")),
-            FileName = reader.GetString(reader.GetOrdinal("FileName")),
-            Extension = reader.GetString(reader.GetOrdinal("Extension")),
-            SizeBytes = reader.GetInt64(reader.GetOrdinal("SizeBytes")),
-            CreationTimeUtc = reader.IsDBNull(reader.GetOrdinal("CreationTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("CreationTimeUtc"))),
-            LastWriteTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastWriteTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastWriteTimeUtc"))),
-            LastAccessTimeUtc = reader.IsDBNull(reader.GetOrdinal("LastAccessTimeUtc")) ? null : UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("LastAccessTimeUtc"))),
-            Attributes = reader.GetInt32(reader.GetOrdinal("Attributes")),
-            ObservedAtUtc = UtcDateTimeHelper.ParseUtc(reader.GetString(reader.GetOrdinal("ObservedAtUtc"))),
-            MetadataStatus = Enum.TryParse<ScanMetadataStatus>(reader.GetString(reader.GetOrdinal("MetadataStatus")), ignoreCase: true, out var metaStatus) ? metaStatus : ScanMetadataStatus.Ok,
-            HashAlgorithm = reader.IsDBNull(reader.GetOrdinal("HashAlgorithm")) ? null : reader.GetString(reader.GetOrdinal("HashAlgorithm")),
-            HashValue = reader.IsDBNull(reader.GetOrdinal("HashValue")) ? null : reader.GetString(reader.GetOrdinal("HashValue"))
-        };
-    }
+    private static FileRecord MapFileRecord(SqliteDataReader reader) => FileRecordMapper.Map(reader);
 
     private static ScanRun MapScanRun(SqliteDataReader reader)
     {

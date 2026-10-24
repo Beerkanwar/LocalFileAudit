@@ -57,23 +57,23 @@ LocalFileAudit.slnx
 ## 3. Core Subsystems
 
 ### 3.1 Filesystem Scanner Engine (`FilesystemScanner`)
-- **Pipeline:** Implemented using `System.Threading.Channels.Channel<DirectoryRecord>` with bounded capacity (`ChannelOptions.BoundedCapacity = 500`).
+- **Pipeline:** Implemented using `System.Threading.Channels.Channel<PersistenceItem>` with bounded capacity (`ChannelOptions.BoundedCapacity = 2000`) and a dedicated concurrent directory queue.
 - **Producer-Consumer:** Traversal enumerates directory trees asynchronously without building recursive call stacks, pushing items to bounded channels with backpressure.
-- **Reparse Points:** Bypasses symbolic links and NTFS junction points when `FollowReparsePoints = false` to avoid infinite cyclic loops and external filesystem leaks.
+- **Reparse Points:** Bypasses symbolic links and NTFS junction points when `FollowReparsePoints = false` to avoid infinite cyclic loops and external filesystem leaks. When enabled, cycle detection tracks visited inodes/paths.
 - **Cooperative Control:** Supports non-blocking `Pause()`, `Resume()`, and `CancellationToken` cancellation.
 - **Low-Impact Mode:** When enabled, introduces micro-delays between directory traversals to preserve system responsiveness during heavy desktop workloads.
 
 ### 3.2 Crash-Safe Persistence (`SqliteScanRepository`)
 - **Engine:** SQLite 3 via `Microsoft.Data.Sqlite`.
 - **Journal Mode:** Write-Ahead Logging (`PRAGMA journal_mode = 'wal'`). WAL mode guarantees that committed transactions survive power outages or process terminations, while readers do not block writers.
-- **Batching:** Files and directory records are inserted in bounded transactions (`BatchSize = 1000`) protected by a `SemaphoreSlim` write lock.
+- **Batching:** Files and directory records are inserted in bounded transactions (default `BatchSize = 500`) protected by a `SemaphoreSlim` write lock.
 - **Resumption Model:** Directory traversal records `Pending`, `InProgress`, and `Completed` states. If a scan is interrupted, `GetPendingOrInterruptedDirectoriesAsync` allows resumption without duplicate inserts.
-- **Online Backup:** Implements `VACUUM INTO` for online, non-blocking snapshot backups of the database while in use.
+- **Online Backup:** Implements SQLite `BackupDatabase` online API for non-blocking snapshot backups of the database while in use.
 
 ### 3.3 Two-Stage Duplicate Detection (`DuplicateAnalysisEngine`)
 To maximize speed on large drives with millions of files:
 - **Stage 1 (Size Clustering):** Groups files by exact logical byte size in SQLite (`HAVING COUNT(1) >= 2`). Files with unique sizes are filtered out immediately without disk I/O.
-- **Stage 2 (SHA-256 Verification):** Files within size clusters are asynchronously hashed using cryptographic SHA-256 streams (`FileAccess.Read`, `FileShare.Read`).
+- **Stage 2 (SHA-256 Verification):** Files within size clusters are asynchronously hashed using cryptographic SHA-256 streams (`FileAccess.Read`, `FileShare.ReadWrite`).
 - **Concurrence Verification:** File modification timestamps are verified before and after hashing. If a file changed during computation, the hash is discarded to prevent false duplicate pairings.
 
 ### 3.4 Deterministic Storage Analysis (`StorageAnalysisEngine`)
@@ -81,8 +81,8 @@ To maximize speed on large drives with millions of files:
   - Total logical size and file counts.
   - Extension distribution (count, size, percentage of total).
   - Storage hotspots by parent directory hierarchy.
-  - Top 100 largest files.
-  - Explainable review candidate classifications (`RULE_LARGE_FILE`, `RULE_OLD_MEDIA`, `RULE_SYSTEM_LOG`, `RULE_TEMP_CACHE`, `RULE_PROTECTED_SYSTEM`).
+  - Top 50 largest files.
+  - Explainable review candidate classifications (`RULE_PROTECTED_SYSTEM`, `RULE_LARGE_FILE`, `RULE_OLD_ARCHIVE_MEDIA`, `RULE_INACTIVE_BACKUP_TEMP`, `RULE_INACTIVE_DOWNLOAD_INSTALLER`).
 
 ### 3.5 Atomic Report Generation (`ReportGenerator`)
 - **Staging Folder Isolation:** Reports are generated into a temporary folder (`.staging_<guid>`).
@@ -92,20 +92,22 @@ To maximize speed on large drives with millions of files:
 
 ### 3.6 Local AI Service (`OllamaClient` & `AiAnalysisService`)
 - **Network Isolation:** Validates `uri.IsLoopback` by default and rejects any remote hostname or non-loopback IP (`http://localhost` and `http://127.0.0.1` only). Users operating a dedicated, self-hosted Ollama server on an isolated private LAN can explicitly opt out via configuration (`RequireLocalEndpoint = false`), which triggers UI warnings and audit logging.
-- **Prompt Injection Defense:** File paths and names from user disks are framed as untrusted input data blocks. AI instructions state that metadata cannot execute commands.
+- **Prompt Injection Defense:** File paths and names from user disks are framed as untrusted input data blocks. AI instructions state that metadata cannot execute commands. Markdown output is sanitized against injection.
 - **Candidate Reconciliation:** AI recommendations are matched against real database candidate IDs. Any recommendation referencing a non-existent candidate ID is rejected as a hallucination.
 
 ---
 
 ## 4. Database Schema
 
-The SQLite inventory database contains 5 core tables:
+The SQLite inventory database contains 7 tables:
 
 1. **`ScanRuns`**: Tracks scan execution metadata, elapsed times, drive filters, file count, error count, and scan status (`Pending`, `InProgress`, `Paused`, `Completed`, `Cancelled`, `Failed`).
 2. **`Directories`**: Tracks directory paths, parent associations, traversal status, and error messages for crash-safe resumption.
-3. **`Files`**: Records file paths, file names, extensions, byte sizes, creation/modification/access UTC timestamps, NTFS file attributes, and SHA-256 hashes. Indexed on `(ScanRunId, SizeBytes)`, `(ScanRunId, Extension)`, and `(ScanRunId, FullPath)`.
+3. **`Files`**: Records file paths, file names, extensions, byte sizes, creation/modification/access UTC timestamps, NTFS file attributes, and SHA-256 hashes. Indexed on `(ScanRunId, SizeBytes)`, `(ScanRunId, Extension)`, `(ScanRunId, FullPath)`, `(ScanRunId, FileName)`, and `(ScanRunId, LastWriteTimeUtc)`.
 4. **`ScanErrors`**: Captures file and directory access errors (`UnauthorizedAccessException`, `IOException`) with path and timestamps.
 5. **`AiReports`**: Stores historical narrative AI reviews and prompt summaries.
+6. **`AnalysisResults`**: Caches computed storage metrics per scan run.
+7. **`ChatHistory`**: Persists conversational chat messages scoped per scan run.
 
 ---
 

@@ -27,8 +27,8 @@ LocalFileAudit adheres strictly to data minimization:
 
 When interacting with the local Ollama instance:
 - **File contents are NEVER transmitted.**
-- Only compact candidate metadata (file name, extension, size in MB, and immediate parent folder name) is provided to explain storage distribution.
-- Prompts are limited to a maximum of 100 candidate items to keep memory usage minimal.
+- Only compact candidate metadata (file name, extension, size in MB, immediate parent folder name, and aggregated hotspot summaries) is provided to explain storage distribution. When path redaction is enabled, file names are masked as `candidate_{id}.ext` and directory structures are masked to prevent personal information leakage.
+- Prompts are bounded to compact candidate items (up to `MaxPayloadCandidates`, default 100) to keep memory usage minimal and prevent prompt truncation.
 
 ---
 
@@ -39,11 +39,12 @@ All application data is stored locally in the standard Windows user profile dire
 ```
 %LOCALAPPDATA%\LocalFileAudit\
 ├── config\
-│   └── appsettings.json         (Local application configuration)
+│   └── config.json              (Local application configuration)
 ├── data\
-│   └── inventory.db             (SQLite database with WAL journal)
+│   ├── inventory.db             (SQLite database with WAL journal)
+│   └── backups\                 (Online snapshot backups)
 ├── logs\
-│   └── app-YYYYMMDD.log         (Rolling local diagnostic logs)
+│   └── app-YYYYMMDD.log         (Rolling local diagnostic logs, bounded to 10 MB)
 └── reports\
     └── scan-<guid>-<timestamp>\ (Exported Markdown, HTML, and CSV reports)
 ```
@@ -54,7 +55,7 @@ You can view or purge any of these folders at any time directly through the **Se
 
 ## 4. Log Privacy & Path Redaction
 
-Local log files generated in `%LOCALAPPDATA%\LocalFileAudit\logs` are rotated daily and bounded in size. To protect user privacy, the rolling logger applies redaction to minimize logging personal file system paths in diagnostic messages.
+Local log files generated in `%LOCALAPPDATA%\LocalFileAudit\logs` are rotated daily and bounded in size (10 MB maximum per file). To protect user privacy, the rolling logger strips raw newlines to prevent log injection and applies redaction to minimize logging personal file system paths in diagnostic messages.
 
 ---
 

@@ -26,6 +26,10 @@ public static partial class CandidateRuleEvaluator
         ".msi", ".exe", ".pkg"
     };
 
+    public static readonly HashSet<string> AllCandidateExtensions = new(
+        MediaAndArchiveExtensions.Concat(TempAndBackupExtensions).Concat(InstallerExtensions),
+        StringComparer.OrdinalIgnoreCase);
+
     public static CandidateClassification Classify(FileRecord file, AppConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(file);
@@ -170,11 +174,21 @@ public static partial class CandidateRuleEvaluator
     [GeneratedRegex(@"^(?:[a-zA-Z]:|\\\\[^\\]+\\[^\\]+)?\\Users\\[^\\]+\\Downloads(?:\\[^\r\n]*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex UserDownloadsPattern();
 
-    private static bool IsProtectedPath(string path)
+    public static bool IsProtectedPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
 
         var normalized = path.Replace('/', '\\');
+
+        // Check well-known root OS system files
+        var fileName = Path.GetFileName(normalized);
+        if (string.Equals(fileName, "pagefile.sys", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fileName, "hiberfil.sys", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fileName, "swapfile.sys", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(fileName, "dumpstack.log", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
 
         string pathWithoutRoot = normalized;
         if (normalized.Length >= 3 && char.IsLetter(normalized[0]) && normalized[1] == ':' && normalized[2] == '\\')
@@ -198,12 +212,26 @@ public static partial class CandidateRuleEvaluator
             pathWithoutRoot = normalized.TrimStart('\\');
         }
 
+        // WSL and Docker virtual disks or container storage (.vhdx inside AppData or Docker/WSL packages)
+        if (normalized.EndsWith(".vhdx", StringComparison.OrdinalIgnoreCase) &&
+            (normalized.Contains(@"\AppData\Local\Packages\", StringComparison.OrdinalIgnoreCase) ||
+             normalized.Contains(@"\Docker\", StringComparison.OrdinalIgnoreCase) ||
+             normalized.Contains(@"\wsl\", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
         return pathWithoutRoot.StartsWith(@"Windows\", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(pathWithoutRoot, "Windows", StringComparison.OrdinalIgnoreCase) ||
                pathWithoutRoot.StartsWith(@"Program Files\", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(pathWithoutRoot, "Program Files", StringComparison.OrdinalIgnoreCase) ||
                pathWithoutRoot.StartsWith(@"Program Files (x86)\", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(pathWithoutRoot, "Program Files (x86)", StringComparison.OrdinalIgnoreCase) ||
+               pathWithoutRoot.StartsWith(@"ProgramData\", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(pathWithoutRoot, "ProgramData", StringComparison.OrdinalIgnoreCase) ||
+               pathWithoutRoot.StartsWith(@"AppData\", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains(@"\AppData\Local\", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Contains(@"\AppData\Roaming\", StringComparison.OrdinalIgnoreCase) ||
                pathWithoutRoot.StartsWith(@"System Volume Information\", StringComparison.OrdinalIgnoreCase) ||
                string.Equals(pathWithoutRoot, "System Volume Information", StringComparison.OrdinalIgnoreCase) ||
                pathWithoutRoot.StartsWith(@"$Recycle.Bin\", StringComparison.OrdinalIgnoreCase) ||

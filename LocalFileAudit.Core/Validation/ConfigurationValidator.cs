@@ -103,6 +103,34 @@ public sealed class ConfigurationValidator : IConfigurationValidator
             errors.Add("AI.MaxPayloadCandidates must be between 1 and 1000.");
         }
 
+        // 5. Logging and exclusions
+        if (config.Logging.RetainDays <= 0)
+        {
+            errors.Add("Logging.RetainDays must be greater than 0 (minimum 1 day).");
+        }
+
+        if (!string.IsNullOrWhiteSpace(config.Logging.LogLevel))
+        {
+            var validLevels = new[] { "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None" };
+            if (!validLevels.Contains(config.Logging.LogLevel, StringComparer.OrdinalIgnoreCase))
+            {
+                errors.Add($"Logging.LogLevel '{config.Logging.LogLevel}' is not a recognized log level.");
+            }
+        }
+
+        if (config.Scanning.ExcludedPaths != null)
+        {
+            var invalidChars = Path.GetInvalidPathChars();
+            foreach (var excluded in config.Scanning.ExcludedPaths)
+            {
+                if (string.IsNullOrWhiteSpace(excluded)) continue;
+                if (excluded.IndexOfAny(invalidChars) >= 0)
+                {
+                    errors.Add($"Scanning.ExcludedPaths contains invalid path characters: '{excluded}'.");
+                }
+            }
+        }
+
         return errors.Count == 0 ? ValidationResult.Success() : ValidationResult.Failure(errors);
     }
 }
