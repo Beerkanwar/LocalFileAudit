@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 using LocalFileAudit.Core.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -8,7 +9,8 @@ namespace LocalFileAudit.Infrastructure.Logging;
 public sealed class FileLoggerProvider : ILoggerProvider
 {
     private readonly ConcurrentDictionary<string, FileLogger> _loggers = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _writeLock = new();
+    private readonly Channel<string> _channel;
+    private readonly Task _writerTask;
     private bool _disposed;
 
     public FileLoggerOptions Options { get; }
@@ -26,6 +28,13 @@ public sealed class FileLoggerProvider : ILoggerProvider
 
         Directory.CreateDirectory(Options.LogDirectory);
         CleanOldLogs();
+
+        _channel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            AllowSynchronousContinuations = false
+        });
+        _writerTask = Task.Run(ProcessLogQueueAsync);
     }
 
     public void ApplyConfiguration(LoggingConfiguration? config)
@@ -55,33 +64,75 @@ public sealed class FileLoggerProvider : ILoggerProvider
             return;
         }
 
-        lock (_writeLock)
+        _channel.Writer.TryWrite(entry);
+    }
+
+    private async Task ProcessLogQueueAsync()
+    {
+        var buffer = new List<string>(100);
+        try
         {
-            try
+            while (await _channel.Reader.WaitToReadAsync().ConfigureAwait(false))
             {
-                var filePath = GetCurrentLogFilePath();
-                var fileInfo = new FileInfo(filePath);
-                if (fileInfo.Exists && fileInfo.Length > MaxLogFileSizeBytes)
+                while (_channel.Reader.TryRead(out var entry))
                 {
-                    var rolledPath = Path.Combine(
-                        Options.LogDirectory!,
-                        $"{Options.LogFileNamePrefix}-{DateTime.UtcNow:yyyyMMdd}-{DateTime.UtcNow:HHmmss}.log");
-                    try
+                    buffer.Add(entry);
+                    if (buffer.Count >= 200)
                     {
-                        File.Move(filePath, rolledPath, overwrite: true);
-                    }
-                    catch
-                    {
-                        // Fallback if move fails
+                        FlushLogBuffer(buffer);
                     }
                 }
 
-                File.AppendAllText(filePath, entry + System.Environment.NewLine);
+                if (buffer.Count > 0)
+                {
+                    FlushLogBuffer(buffer);
+                }
             }
-            catch
+        }
+        catch
+        {
+            // Consumer cancellation or termination
+        }
+        finally
+        {
+            if (buffer.Count > 0)
             {
-                // File logging should never crash the host application
+                FlushLogBuffer(buffer);
             }
+        }
+    }
+
+    private void FlushLogBuffer(List<string> buffer)
+    {
+        try
+        {
+            var filePath = GetCurrentLogFilePath();
+            var fileInfo = new FileInfo(filePath);
+            if (fileInfo.Exists && fileInfo.Length > MaxLogFileSizeBytes)
+            {
+                var rolledPath = Path.Combine(
+                    Options.LogDirectory!,
+                    $"{Options.LogFileNamePrefix}-{DateTime.UtcNow:yyyyMMdd}-{DateTime.UtcNow:HHmmss}.log");
+                try
+                {
+                    File.Move(filePath, rolledPath, overwrite: true);
+                }
+                catch
+                {
+                    // Fallback if move fails
+                }
+            }
+
+            var text = string.Join(System.Environment.NewLine, buffer) + System.Environment.NewLine;
+            File.AppendAllText(filePath, text);
+        }
+        catch
+        {
+            // File logging should never crash the host application
+        }
+        finally
+        {
+            buffer.Clear();
         }
     }
 
@@ -129,6 +180,12 @@ public sealed class FileLoggerProvider : ILoggerProvider
     {
         if (_disposed) return;
         _disposed = true;
+        _channel.Writer.TryComplete();
+        try
+        {
+            _writerTask.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch { }
         _loggers.Clear();
     }
 }

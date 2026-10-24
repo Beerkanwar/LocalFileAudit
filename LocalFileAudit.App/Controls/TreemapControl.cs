@@ -325,20 +325,21 @@ public sealed class TreemapControl : Canvas
         if (string.IsNullOrWhiteSpace(path)) return;
         try
         {
-            if (Directory.Exists(path))
+            var cleanPath = path.Trim().Trim('"');
+            if (Directory.Exists(cleanPath))
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = path,
+                    FileName = cleanPath,
                     UseShellExecute = true
                 });
             }
-            else if (File.Exists(path))
+            else if (File.Exists(cleanPath))
             {
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = "explorer.exe",
-                    Arguments = $"/select,\"{path}\"",
+                    Arguments = $"/select,\"{cleanPath}\"",
                     UseShellExecute = true
                 });
             }

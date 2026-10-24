@@ -171,7 +171,7 @@
                                                     CommandParameter="{Binding Id}" ToolTip="Open detailed storage analysis" />
                                             <Button Style="{StaticResource SecondaryButtonStyle}" Content="✕" Height="26" Padding="8,0" FontSize="11" Foreground="{StaticResource ErrorBrush}"
                                                     Command="{Binding DataContext.DeleteScanHistoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding Id}" ToolTip="Delete this scan history record from database (source files untouched)" />
+                                                    CommandParameter="{Binding Id}" IsEnabled="{Binding DataContext.CanDelete, RelativeSource={RelativeSource AncestorType=UserControl}}" ToolTip="Delete this scan history record from database (source files untouched)" />
                                         </StackPanel>
                                     </Grid>
                                 </Border>

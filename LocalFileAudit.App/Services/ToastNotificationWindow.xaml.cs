@@ -18,10 +18,14 @@ public partial class ToastNotificationWindow : Window
 
         if (!isSuccess)
         {
-            IconBadge.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#332414"));
-            IconBadge.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"));
+            var warningBrush = Application.Current?.TryFindResource("WarningBrush") as Brush
+                ?? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"));
+            var badgeBg = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#332414"));
+
+            IconBadge.Background = badgeBg;
+            IconBadge.BorderBrush = warningBrush;
             IconText.Text = "⚠";
-            IconText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"));
+            IconText.Foreground = warningBrush;
         }
 
         // Position window at bottom right of working area

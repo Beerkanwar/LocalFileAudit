@@ -21,7 +21,7 @@ public partial class App : Application
     private static Mutex? _singleInstanceMutex;
     private IHost? _host;
 
-    protected override async void OnStartup(StartupEventArgs e)
+    protected override void OnStartup(StartupEventArgs e)
     {
         const string mutexName = @"Local\LocalFileAudit_SingleInstance_Mutex";
         _singleInstanceMutex = new Mutex(true, mutexName, out bool isNewInstance);
@@ -38,70 +38,79 @@ public partial class App : Application
 
         SetupGlobalExceptionHandling();
 
-        try
+        _ = Task.Run(async () =>
         {
-            _host = Host.CreateDefaultBuilder(e.Args)
-                .ConfigureServices((context, services) =>
+            try
+            {
+                _host = Host.CreateDefaultBuilder(e.Args)
+                    .ConfigureServices((context, services) =>
+                    {
+                        // Infrastructure services (AppEnvironment, ConfigurationValidator, ConfigurationService)
+                        services.AddInfrastructureServices();
+
+                        // Notification service
+                        services.AddSingleton<INotificationService, LocalFileAudit.App.Services.WpfNotificationService>();
+
+                        // ViewModels
+                        services.AddSingleton<DashboardViewModel>();
+                        services.AddSingleton<ScansViewModel>();
+                        services.AddSingleton<InventoryViewModel>();
+                        services.AddSingleton<StorageAnalysisViewModel>();
+                        services.AddSingleton<DuplicateAnalysisViewModel>();
+                        services.AddSingleton<AiReportsViewModel>();
+                        services.AddSingleton<CompareRunsViewModel>();
+                        services.AddSingleton<ArchivePlanViewModel>();
+                        services.AddSingleton<ArchiveVerificationViewModel>();
+                        services.AddSingleton<SettingsViewModel>();
+                        services.AddSingleton<MainViewModel>();
+
+                        // Views
+                        services.AddSingleton<MainWindow>();
+                    })
+                    .ConfigureLogging((context, logging) =>
+                    {
+                        logging.ClearProviders();
+                        logging.AddLocalFileLogger();
+                    })
+                    .Build();
+
+                await _host.StartAsync();
+
+                var logger = _host.Services.GetRequiredService<ILogger<App>>();
+                logger.LogInformation("LocalFileAudit application starting. Version {Version}. Safe read-only mode active.", LocalFileAudit.Core.Common.AppVersion.Current);
+
+                // Ensure application directories and configuration are initialized
+                var configService = _host.Services.GetRequiredService<IConfigurationService>();
+                await configService.LoadAsync();
+
+                var loggerProvider = _host.Services.GetService<FileLoggerProvider>();
+                loggerProvider?.ApplyConfiguration(configService.Current.Logging);
+
+                // Ensure SQLite database schema and WAL mode are initialized
+                var dbInit = _host.Services.GetRequiredService<IDatabaseInitializer>();
+                await dbInit.InitializeAsync();
+
+                // Launch main window on UI thread
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    // Infrastructure services (AppEnvironment, ConfigurationValidator, ConfigurationService)
-                    services.AddInfrastructureServices();
-
-                    // Notification service
-                    services.AddSingleton<INotificationService, LocalFileAudit.App.Services.WpfNotificationService>();
-
-                    // ViewModels
-                    services.AddSingleton<DashboardViewModel>();
-                    services.AddSingleton<ScansViewModel>();
-                    services.AddSingleton<InventoryViewModel>();
-                    services.AddSingleton<StorageAnalysisViewModel>();
-                    services.AddSingleton<DuplicateAnalysisViewModel>();
-                    services.AddSingleton<AiReportsViewModel>();
-                    services.AddSingleton<CompareRunsViewModel>();
-                    services.AddSingleton<ArchivePlanViewModel>();
-                    services.AddSingleton<ArchiveVerificationViewModel>();
-                    services.AddSingleton<SettingsViewModel>();
-                    services.AddSingleton<MainViewModel>();
-
-                    // Views
-                    services.AddSingleton<MainWindow>();
-                })
-                .ConfigureLogging((context, logging) =>
+                    var mainWindow = _host.Services.GetRequiredService<MainWindow>();
+                    mainWindow.Show();
+                });
+            }
+            catch (Exception ex)
+            {
+                await Dispatcher.InvokeAsync(() =>
                 {
-                    logging.ClearProviders();
-                    logging.AddLocalFileLogger();
-                })
-                .Build();
+                    MessageBox.Show(
+                        $"A critical error occurred while initializing LocalFileAudit:\n\n{ex.Message}\n\nThe application will now close. Please inspect diagnostic logs for more details.",
+                        "LocalFileAudit — Fatal Startup Error",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Error);
 
-            await _host.StartAsync();
-
-            var logger = _host.Services.GetRequiredService<ILogger<App>>();
-            logger.LogInformation("LocalFileAudit application starting. Version {Version}. Safe read-only mode active.", LocalFileAudit.Core.Common.AppVersion.Current);
-
-            // Ensure application directories and configuration are initialized
-            var configService = _host.Services.GetRequiredService<IConfigurationService>();
-            await configService.LoadAsync();
-
-            var loggerProvider = _host.Services.GetService<FileLoggerProvider>();
-            loggerProvider?.ApplyConfiguration(configService.Current.Logging);
-
-            // Ensure SQLite database schema and WAL mode are initialized
-            var dbInit = _host.Services.GetRequiredService<IDatabaseInitializer>();
-            await dbInit.InitializeAsync();
-
-            // Launch main window
-            var mainWindow = _host.Services.GetRequiredService<MainWindow>();
-            mainWindow.Show();
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(
-                $"A critical error occurred while initializing LocalFileAudit:\n\n{ex.Message}\n\nThe application will now close. Please inspect diagnostic logs for more details.",
-                "LocalFileAudit — Fatal Startup Error",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-
-            Shutdown(-1);
-        }
+                    Shutdown(-1);
+                });
+            }
+        });
     }
 
     protected override void OnExit(ExitEventArgs e)
@@ -110,6 +119,16 @@ public partial class App : Application
         {
             var logger = _host.Services.GetService<ILogger<App>>();
             logger?.LogInformation("LocalFileAudit application stopping.");
+
+            try
+            {
+                var repo = _host.Services.GetService<IScanRepository>();
+                if (repo != null)
+                {
+                    repo.CheckpointTruncateAsync(CancellationToken.None).GetAwaiter().GetResult();
+                }
+            }
+            catch { }
 
             try
             {

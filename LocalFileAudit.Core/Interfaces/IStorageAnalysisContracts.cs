@@ -12,6 +12,7 @@ public interface IStorageAnalysisEngine
     Task<IReadOnlyList<FileRecord>> GetLargestFilesAsync(Guid scanRunId, int top = 100, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DirectorySummary>> GetLargestDirectoriesAsync(Guid scanRunId, int top = 50, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<CandidateClassification>> ClassifyCandidatesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task InvalidateCacheAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default);
     void InvalidateCache(Guid? scanRunId = null);
 }
 

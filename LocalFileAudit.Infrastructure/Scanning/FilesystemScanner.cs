@@ -286,6 +286,7 @@ public sealed class FilesystemScanner : IScanEngine
             try
             {
                 var buffer = new List<FileRecord>(batchSize);
+                var dirUpdates = new List<DirectoryStatusUpdate>(100);
 
                 async Task FlushBufferAsync()
                 {
@@ -293,6 +294,11 @@ public sealed class FilesystemScanner : IScanEngine
                     {
                         await _repository.InsertFileBatchAsync(buffer, CancellationToken.None).ConfigureAwait(false);
                         buffer.Clear();
+                    }
+                    if (dirUpdates.Count > 0)
+                    {
+                        await _repository.UpdateDirectoryStatusBatchAsync(dirUpdates, CancellationToken.None).ConfigureAwait(false);
+                        dirUpdates.Clear();
                     }
                 }
 
@@ -310,9 +316,11 @@ public sealed class FilesystemScanner : IScanEngine
                         }
                         else if (item is DirectoryCheckpointItem dirItem)
                         {
-                            // Ensure all files for directory are durable in SQLite BEFORE directory status is marked
-                            await FlushBufferAsync().ConfigureAwait(false);
-                            await _repository.UpdateDirectoryStatusAsync(dirItem.DirectoryId, dirItem.State, dirItem.FilesProcessed, dirItem.LastError, CancellationToken.None).ConfigureAwait(false);
+                            dirUpdates.Add(new DirectoryStatusUpdate(dirItem.DirectoryId, dirItem.State, dirItem.FilesProcessed, dirItem.LastError));
+                            if (dirUpdates.Count >= 200 || buffer.Count >= batchSize)
+                            {
+                                await FlushBufferAsync().ConfigureAwait(false);
+                            }
                         }
                     }
 

@@ -472,8 +472,15 @@ public sealed partial class InventoryViewModel : ViewModelBase
 
         try
         {
+            var cleanPath = SelectedFile.FullPath.Trim().Trim('"');
+            if (!File.Exists(cleanPath) && !Directory.Exists(cleanPath))
+            {
+                StatusMessage = "File or directory does not exist on disk.";
+                return;
+            }
+
             // Opens Explorer with the file highlighted without executing or mutating it
-            var args = $"/select,\"{SelectedFile.FullPath}\"";
+            var args = $"/select,\"{cleanPath}\"";
             Process.Start(new ProcessStartInfo
             {
                 FileName = "explorer.exe",

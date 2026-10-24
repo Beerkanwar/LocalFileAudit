@@ -25,6 +25,7 @@ public interface IScanRepository
 
     Task InsertDirectoryBatchAsync(IEnumerable<DirectoryRecord> directories, CancellationToken cancellationToken = default);
     Task UpdateDirectoryStatusAsync(long directoryId, DirectoryState status, int filesProcessed, string? lastError, CancellationToken cancellationToken = default);
+    Task UpdateDirectoryStatusBatchAsync(IEnumerable<DirectoryStatusUpdate> updates, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<DirectoryRecord>> GetPendingOrInterruptedDirectoriesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task<long> GetCompletedDirectoryCountForScanAsync(Guid scanRunId, CancellationToken cancellationToken = default);
 
@@ -53,7 +54,15 @@ public interface IScanRepository
     Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, CancellationToken cancellationToken = default);
     Task DeleteAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task<StorageMetricsSummary?> GetScanMetricsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task SaveScanMetricsAsync(Guid scanRunId, StorageMetricsSummary summary, CancellationToken cancellationToken = default);
+    Task CheckpointTruncateAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// Status update data for a directory checkpoint.
+/// </summary>
+public readonly record struct DirectoryStatusUpdate(long DirectoryId, DirectoryState Status, int FilesProcessed, string? LastError);
 
 /// <summary>
 /// Core filesystem scanner engine.

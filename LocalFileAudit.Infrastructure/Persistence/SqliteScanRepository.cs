@@ -187,38 +187,92 @@ public sealed class SqliteScanRepository : IScanRepository
 
     public async Task DiscardScanRunAsync(Guid scanRunId, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("Discarding scan run {ScanRunId} in bounded chunks...", scanRunId);
+        var idStr = scanRunId.ToString();
+
+        // 1. Delete Files in bounded batches (50,000 rows per transaction) to prevent holding exclusive locks
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            int deletedInBatch = 0;
+            await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await using var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    DELETE FROM Files 
+                    WHERE Id IN (SELECT Id FROM Files WHERE ScanRunId = @Id LIMIT 50000);
+                ";
+                cmd.Parameters.AddWithValue("@Id", idStr);
+                deletedInBatch = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
+
+            if (deletedInBatch == 0) break;
+            await Task.Yield();
+        }
+
+        // 2. Delete Directories in bounded batches (25,000 rows per transaction)
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            int deletedInBatch = 0;
+            await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+                await using var cmd = connection.CreateCommand();
+                cmd.CommandText = @"
+                    DELETE FROM Directories 
+                    WHERE Id IN (SELECT Id FROM Directories WHERE ScanRunId = @Id LIMIT 25000);
+                ";
+                cmd.Parameters.AddWithValue("@Id", idStr);
+                deletedInBatch = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
+
+            if (deletedInBatch == 0) break;
+            await Task.Yield();
+        }
+
+        // 3. Delete remaining child tables and parent ScanRuns record
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             await using var tx = connection.BeginTransaction();
-
             await using var cmd = connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = @"
-                DELETE FROM Files WHERE ScanRunId = @Id;
-                DELETE FROM Directories WHERE ScanRunId = @Id;
                 DELETE FROM ScanErrors WHERE ScanRunId = @Id;
                 DELETE FROM AnalysisResults WHERE ScanRunId = @Id;
+                DELETE FROM AiReports WHERE ScanRunId = @Id;
+                DELETE FROM ChatMessages WHERE ScanRunId = @Id;
+                DELETE FROM ScanMetrics WHERE ScanRunId = @Id;
                 DELETE FROM ScanRuns WHERE Id = @Id;
             ";
-            cmd.Parameters.AddWithValue("@Id", scanRunId.ToString());
+            cmd.Parameters.AddWithValue("@Id", idStr);
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
 
+            // Reclaim disk space by truncating WAL
             try
             {
                 await using var cpCmd = connection.CreateCommand();
-                cpCmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
+                cpCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
                 await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "WAL checkpoint after discard skipped.");
+                _logger.LogDebug(ex, "WAL checkpoint truncate after discard skipped.");
             }
 
-            _logger.LogInformation("Discarded scan run {ScanRunId} from local database.", scanRunId);
+            _logger.LogInformation("Discarded scan run {ScanRunId} from local database safely.", scanRunId);
         }
         finally
         {
@@ -281,18 +335,21 @@ public sealed class SqliteScanRepository : IScanRepository
         }
     }
 
-    public async Task UpdateDirectoryStatusAsync(
-        long directoryId,
-        DirectoryState status,
-        int filesProcessed,
-        string? lastError,
+    public async Task UpdateDirectoryStatusBatchAsync(
+        IEnumerable<DirectoryStatusUpdate> updates,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(updates);
+        var list = updates.ToList();
+        if (list.Count == 0) return;
+
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var tx = connection.BeginTransaction();
             await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = @"
                 UPDATE Directories
                 SET Status = @Status,
@@ -301,19 +358,38 @@ public sealed class SqliteScanRepository : IScanRepository
                     LastError = @LastError
                 WHERE Id = @Id;
             ";
-            cmd.Parameters.AddWithValue("@Id", directoryId);
-            cmd.Parameters.AddWithValue("@Status", status.ToString());
-            cmd.Parameters.AddWithValue("@FilesProcessed", filesProcessed);
-            cmd.Parameters.AddWithValue("@LastCheckpointUtc", DateTime.UtcNow.ToString("o"));
-            cmd.Parameters.AddWithValue("@LastError", (object?)lastError ?? DBNull.Value);
+            var pId = cmd.Parameters.Add("@Id", SqliteType.Integer);
+            var pStatus = cmd.Parameters.Add("@Status", SqliteType.Text);
+            var pFiles = cmd.Parameters.Add("@FilesProcessed", SqliteType.Integer);
+            var pTime = cmd.Parameters.Add("@LastCheckpointUtc", SqliteType.Text);
+            var pErr = cmd.Parameters.Add("@LastError", SqliteType.Text);
 
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            var nowIso = DateTime.UtcNow.ToString("o");
+            foreach (var u in list)
+            {
+                pId.Value = u.DirectoryId;
+                pStatus.Value = u.Status.ToString();
+                pFiles.Value = u.FilesProcessed;
+                pTime.Value = nowIso;
+                pErr.Value = (object?)u.LastError ?? DBNull.Value;
+                await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _writeLock.Release();
         }
     }
+
+    public Task UpdateDirectoryStatusAsync(
+        long directoryId,
+        DirectoryState status,
+        int filesProcessed,
+        string? lastError,
+        CancellationToken cancellationToken = default)
+        => UpdateDirectoryStatusBatchAsync(new[] { new DirectoryStatusUpdate(directoryId, status, filesProcessed, lastError) }, cancellationToken);
 
     public async Task<IReadOnlyList<DirectoryRecord>> GetPendingOrInterruptedDirectoriesAsync(Guid scanRunId, CancellationToken cancellationToken = default)
     {
@@ -512,9 +588,9 @@ public sealed class SqliteScanRepository : IScanRepository
 
         if (!string.IsNullOrWhiteSpace(query.Extension))
         {
-            var ext = query.Extension.Trim();
+            var ext = query.Extension.Trim().ToLowerInvariant();
             if (!ext.StartsWith('.')) ext = "." + ext;
-            whereConditions.Add("Extension = @Extension COLLATE NOCASE");
+            whereConditions.Add("Extension = @Extension");
             parameters.Add(new SqliteParameter("@Extension", ext));
         }
 
@@ -1243,6 +1319,74 @@ public sealed class SqliteScanRepository : IScanRepository
             cmd.CommandText = "DELETE FROM AnalysisResults WHERE ScanRunId = @ScanRunId;";
             cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task<StorageMetricsSummary?> GetScanMetricsAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT MetricsJson FROM ScanMetrics WHERE ScanRunId = @Id LIMIT 1;";
+        cmd.Parameters.AddWithValue("@Id", scanRunId.ToString());
+        var scalar = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (scalar is string json && !string.IsNullOrWhiteSpace(json))
+        {
+            try
+            {
+                return System.Text.Json.JsonSerializer.Deserialize<StorageMetricsSummary>(json);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to deserialize cached scan metrics for {ScanRunId}", scanRunId);
+            }
+        }
+        return null;
+    }
+
+    public async Task SaveScanMetricsAsync(Guid scanRunId, StorageMetricsSummary summary, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(summary);
+        var json = System.Text.Json.JsonSerializer.Serialize(summary);
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = @"
+                INSERT INTO ScanMetrics (ScanRunId, MetricsJson, CalculatedAtUtc)
+                VALUES (@Id, @Json, @CalculatedAt)
+                ON CONFLICT(ScanRunId) DO UPDATE SET
+                    MetricsJson = excluded.MetricsJson,
+                    CalculatedAtUtc = excluded.CalculatedAtUtc;
+            ";
+            cmd.Parameters.AddWithValue("@Id", scanRunId.ToString());
+            cmd.Parameters.AddWithValue("@Json", json);
+            cmd.Parameters.AddWithValue("@CalculatedAt", DateTime.UtcNow.ToString("o"));
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task CheckpointTruncateAsync(CancellationToken cancellationToken = default)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Explicit WAL checkpoint TRUNCATE skipped or failed.");
         }
         finally
         {

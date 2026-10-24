@@ -61,6 +61,8 @@ public sealed partial class DashboardViewModel : ViewModelBase
     public ObservableCollection<DirectorySummary> TreemapDirectories { get; } = new();
     public ObservableCollection<FileRecord> LargestFiles { get; } = new();
 
+    private CancellationTokenSource? _metricsCts;
+
     public DashboardViewModel(
         IScanRepository repository,
         IStorageAnalysisEngine analysisEngine,
@@ -74,20 +76,26 @@ public sealed partial class DashboardViewModel : ViewModelBase
         _ = LoadLatestMetricsAsync();
     }
 
-    public async Task LoadLatestMetricsAsync()
+    public async Task LoadLatestMetricsAsync(CancellationToken cancellationToken = default)
     {
-        if (IsLoading) return;
+        _metricsCts?.Cancel();
+        _metricsCts?.Dispose();
+        _metricsCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var token = _metricsCts.Token;
+
         IsLoading = true;
 
         try
         {
-            var recent = await _repository.GetRecentScanRunsAsync(1);
+            var recent = await _repository.GetRecentScanRunsAsync(1, token);
+            token.ThrowIfCancellationRequested();
             var latest = recent.FirstOrDefault();
             if (latest != null)
             {
                 HasScanData = true;
-                var filesCount = await _repository.GetFileCountForScanAsync(latest.Id);
-                var totalBytes = await _repository.GetTotalLogicalSizeBytesForScanAsync(latest.Id);
+                var filesCount = await _repository.GetFileCountForScanAsync(latest.Id, token);
+                var totalBytes = await _repository.GetTotalLogicalSizeBytesForScanAsync(latest.Id, token);
+                token.ThrowIfCancellationRequested();
 
                 TotalFilesDiscoveredText = $"{filesCount:N0} files";
                 TotalLogicalSizeText = $"{totalBytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
@@ -97,7 +105,8 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 ErrorCountText = $"{latest.ErrorCount:N0} errors";
 
                 // Load deterministic metrics for dashboard charts & hotspots
-                var metrics = await Task.Run(() => _analysisEngine.AnalyzeScanAsync(latest.Id));
+                var metrics = await _analysisEngine.AnalyzeScanAsync(latest.Id, cancellationToken: token);
+                token.ThrowIfCancellationRequested();
 
                 TotalLogicalSizeBytes = metrics.TotalLogicalSizeBytes;
 
@@ -171,13 +180,20 @@ public sealed partial class DashboardViewModel : ViewModelBase
                 CloudPlaceholderStatsText = "0 files";
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Ignored on newer request
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to load dashboard metrics from SQLite.");
         }
         finally
         {
-            IsLoading = false;
+            if (_metricsCts?.Token == token)
+            {
+                IsLoading = false;
+            }
         }
     }
 

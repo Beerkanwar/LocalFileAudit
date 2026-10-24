@@ -67,14 +67,6 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         if (scanRunId.HasValue)
         {
             _summaryCache.TryRemove(scanRunId.Value, out _);
-            try
-            {
-                _repository.DeleteAnalysisResultsAsync(scanRunId.Value).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Failed to synchronously delete AnalysisResults for scan {ScanRunId}", scanRunId.Value);
-            }
         }
         else
         {
@@ -90,6 +82,17 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         if (run.Status == ScanState.Completed && _summaryCache.TryGetValue(scanRunId, out var cachedSummary) && cachedSummary.IsScanComplete)
         {
             return cachedSummary;
+        }
+
+        // Check persistent database cache for completed scans to avoid expensive recalculation on cold startup
+        if (run.Status == ScanState.Completed)
+        {
+            var dbMetrics = await _repository.GetScanMetricsAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+            if (dbMetrics != null && dbMetrics.IsScanComplete)
+            {
+                _summaryCache[scanRunId] = dbMetrics;
+                return dbMetrics;
+            }
         }
 
         var totalFiles = await _repository.GetFileCountForScanAsync(scanRunId, cancellationToken).ConfigureAwait(false);
@@ -174,6 +177,14 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
                 }
             }
             _summaryCache[scanRunId] = summary;
+            try
+            {
+                await _repository.SaveScanMetricsAsync(scanRunId, summary, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist ScanMetrics for scan {ScanRunId}", scanRunId);
+            }
         }
         return summary;
     }
@@ -470,7 +481,6 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
                   AND (
                       SizeBytes >= @LargeThreshold 
                       OR Extension IN ({extList})
-                      OR FullPath LIKE '%\Downloads\%'
                   )
                 ORDER BY SizeBytes DESC
                 LIMIT 1000;

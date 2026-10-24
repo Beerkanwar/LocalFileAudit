@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.14] - 2026-10-24
+
+### Performance, Scalability & Database Optimizations
+- **Instant Cold Startup:**
+  - Removed synchronous `PRAGMA quick_check;` from cold startup in `SqliteDatabaseInitializer`, eliminating launch freezes on multi-gigabyte databases.
+  - Made application startup synchronous with background task dispatching and robust fatal error handling.
+- **Chunked Deletion Engine & UI Responsiveness:**
+  - Rewrote scan discard in `SqliteScanRepository` to process file records (50,000-row chunks) and directory records (25,000-row chunks) in bounded transactions with lock yielding, preventing database lock freezes.
+  - Added delete state tracking and UI button disabling in `ScansViewModel` and `ScansView.xaml`.
+- **Async Storage Analysis Cache Invalidation:**
+  - Replaced sync-over-async cache invalidation with pure asynchronous execution across `IStorageAnalysisContracts`, `StorageAnalysisEngine`, and `ScansViewModel` to eliminate UI thread deadlocks.
+- **Persistent Storage Metrics Cache:**
+  - Introduced `ScanMetrics` database schema and persistence methods to eliminate cold-start directory tree recalculations across 450,000+ directories.
+- **Directory Traversal Checkpoint Batching:**
+  - Buffered directory checkpoint items in `FilesystemScanner` and flushed them in batches alongside file batches via `UpdateDirectoryStatusBatchAsync`, reducing discrete transactions by >99%.
+- **High-Performance Query Indexing:**
+  - Added `idx_files_scan_fullpath_nocase` on `Files(ScanRunId, FullPath COLLATE NOCASE)` to eliminate nested-loop join overhead during scan comparisons.
+  - Added `idx_files_ext` on `Files(Extension)` and optimized candidate classification queries to eliminate full table scans.
+- **Asynchronous File Logging Channel:**
+  - Replaced synchronous disk append under lock with an asynchronous unbounded `Channel<string>` consumer thread in `FileLoggerProvider`.
+- **Lazy Archive Verification Streaming:**
+  - Replaced eager task allocation with `Parallel.ForEachAsync` in `ArchiveVerificationService` to prevent heap allocation spikes.
+- **Automatic WAL Truncation:**
+  - Added `PRAGMA wal_checkpoint(TRUNCATE)` on application shutdown and following scan discards to reclaim disk space.
+- **Path Sanitization & Theme Resource Resolution:**
+  - Trimmed embedded quotes and verified filesystem path existence before invoking `Process.Start` for Windows Explorer.
+  - Bound notification badge styles to dynamic theme brushes.
+  - Propagated cancellation tokens across dashboard and inventory navigation.
+
 ## [1.3.13] - 2026-10-24
 
 ### Comprehensive Security, Architecture & Reliability Remediation

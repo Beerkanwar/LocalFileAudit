@@ -52,22 +52,6 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             await pragmaCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // Verify database integrity on startup
-        try
-        {
-            await using var checkCmd = connection.CreateCommand();
-            checkCmd.CommandText = "PRAGMA quick_check;";
-            var checkResult = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-            if (!string.Equals(checkResult?.ToString(), "ok", StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogWarning("SQLite database integrity check warning on startup: {Result}", checkResult);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not complete startup database integrity check.");
-        }
-
         int userVersion = 0;
         await using (var vCmd = connection.CreateCommand())
         {
@@ -169,14 +153,23 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
                 FOREIGN KEY (ScanRunId) REFERENCES ScanRuns(Id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS ScanMetrics (
+                ScanRunId TEXT PRIMARY KEY,
+                MetricsJson TEXT NOT NULL,
+                CalculatedAtUtc TEXT NOT NULL,
+                FOREIGN KEY (ScanRunId) REFERENCES ScanRuns(Id) ON DELETE CASCADE
+            );
+
             -- Indexes for high performance querying
             CREATE INDEX IF NOT EXISTS idx_files_scan_parent ON Files(ScanRunId, ParentPath);
             CREATE INDEX IF NOT EXISTS idx_files_scan_ext ON Files(ScanRunId, Extension);
+            CREATE INDEX IF NOT EXISTS idx_files_ext ON Files(Extension);
             CREATE INDEX IF NOT EXISTS idx_files_scan_size ON Files(ScanRunId, SizeBytes);
             CREATE INDEX IF NOT EXISTS idx_files_scan_cloud ON Files(ScanRunId, MetadataStatus);
             CREATE INDEX IF NOT EXISTS idx_files_scan_filename ON Files(ScanRunId, FileName);
             CREATE INDEX IF NOT EXISTS idx_files_scan_lastwrite ON Files(ScanRunId, LastWriteTimeUtc);
             CREATE INDEX IF NOT EXISTS idx_files_scan_fullpath ON Files(ScanRunId, FullPath);
+            CREATE INDEX IF NOT EXISTS idx_files_scan_fullpath_nocase ON Files(ScanRunId, FullPath COLLATE NOCASE);
             CREATE INDEX IF NOT EXISTS idx_files_fullpath ON Files(FullPath, SizeBytes);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_dirs_scan_path_unique ON Directories(ScanRunId, Path);
             CREATE INDEX IF NOT EXISTS idx_dirs_scan_status ON Directories(ScanRunId, Status);
@@ -190,12 +183,16 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
         cmd.CommandText = ddl;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
-        if (userVersion < 2)
+        if (userVersion < 3)
         {
             await using var migrateCmd = connection.CreateCommand();
-            migrateCmd.CommandText = "PRAGMA user_version = 2;";
+            migrateCmd.CommandText = @"
+                CREATE INDEX IF NOT EXISTS idx_files_ext ON Files(Extension);
+                CREATE INDEX IF NOT EXISTS idx_files_scan_fullpath_nocase ON Files(ScanRunId, FullPath COLLATE NOCASE);
+                PRAGMA user_version = 3;
+            ";
             await migrateCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("Database migrated to user_version 2 (sorting and fullpath indexes applied).");
+            _logger.LogInformation("Database migrated to user_version 3 (extension index and case-insensitive join index applied).");
         }
 
         // Checkpoint WAL frames into main DB non-blockingly and update query planner statistics

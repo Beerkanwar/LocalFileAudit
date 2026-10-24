@@ -177,25 +177,28 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             summary.Items.Add(item);
         }
 
-        // Bounded concurrent hashing (Feature M1)
+        // Bounded concurrent hashing with lazy streaming
         if (calculateSha256 && hashCandidates.Count > 0)
         {
             var maxConcurrency = Math.Clamp(System.Environment.ProcessorCount, 2, 8);
-            using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+            var parallelOptions = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = maxConcurrency,
+                CancellationToken = cancellationToken
+            };
+
             var totalHashOperations = hashCandidates.Count;
             var processedHashOperations = 0;
 
-            var hashTasks = hashCandidates.Select(async item =>
+            await Parallel.ForEachAsync(hashCandidates, parallelOptions, async (item, ct) =>
             {
-                await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
                 try
                 {
-                    var srcHashTask = ComputeFileSha256ReadOnlyAsync(item.SourceFullPath, cancellationToken);
-                    var dstHashTask = ComputeFileSha256ReadOnlyAsync(item.DestinationFullPath, cancellationToken);
-                    await Task.WhenAll(srcHashTask, dstHashTask).ConfigureAwait(false);
+                    var srcHash = await ComputeFileSha256ReadOnlyAsync(item.SourceFullPath, ct).ConfigureAwait(false);
+                    var dstHash = await ComputeFileSha256ReadOnlyAsync(item.DestinationFullPath, ct).ConfigureAwait(false);
 
-                    item.SourceHash = await srcHashTask;
-                    item.DestinationHash = await dstHashTask;
+                    item.SourceHash = srcHash;
+                    item.DestinationHash = dstHash;
 
                     if (string.IsNullOrEmpty(item.SourceHash) || string.IsNullOrEmpty(item.DestinationHash))
                     {
@@ -215,16 +218,13 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
                 }
                 finally
                 {
-                    semaphore.Release();
-                    if (!cancellationToken.IsCancellationRequested)
+                    if (!ct.IsCancellationRequested)
                     {
                         var done = Interlocked.Increment(ref processedHashOperations);
                         progress?.Report(50.0 + ((double)done / totalHashOperations) * 50.0);
                     }
                 }
-            });
-
-            await Task.WhenAll(hashTasks).ConfigureAwait(false);
+            }).ConfigureAwait(false);
 
             // Re-aggregate counts based on hash verification results
             summary.MatchCount = summary.Items.Count(i => i.Status == VerificationStatus.Match);

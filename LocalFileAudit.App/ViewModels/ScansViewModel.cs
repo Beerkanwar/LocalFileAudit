@@ -36,7 +36,14 @@ public sealed partial class ScansViewModel : ViewModelBase
     private CancellationTokenSource? _scanCts;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDelete))]
     private bool _isScanning;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanDelete))]
+    private bool _isDeleting;
+
+    public bool CanDelete => !IsScanning && !IsDeleting;
 
     [ObservableProperty]
     private bool _isPaused;
@@ -114,9 +121,9 @@ public sealed partial class ScansViewModel : ViewModelBase
     [RelayCommand]
     public async Task DeleteScanHistoryAsync(Guid scanRunId)
     {
-        if (IsScanning)
+        if (IsScanning || IsDeleting)
         {
-            MessageBox.Show("Cannot delete scan records while a scan is actively running or resuming.", "Scan Active", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Cannot delete scan records while another scan or delete operation is actively running.", "Operation Active", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -128,10 +135,16 @@ public sealed partial class ScansViewModel : ViewModelBase
 
         if (confirm != MessageBoxResult.Yes) return;
 
+        IsDeleting = true;
+        ScanStatusText = $"Removing scan history records for {scanRunId}... (source files untouched)";
+
         try
         {
             await _repository.DiscardScanRunAsync(scanRunId);
-            _analysisEngine?.InvalidateCache(scanRunId);
+            if (_analysisEngine != null)
+            {
+                await _analysisEngine.InvalidateCacheAsync(scanRunId);
+            }
             ScanStatusText = $"Scan history record {scanRunId} removed from database. Source files untouched.";
             await RefreshScansAsync();
         }
@@ -139,6 +152,10 @@ public sealed partial class ScansViewModel : ViewModelBase
         {
             ScanStatusText = $"Failed to remove scan history: {ex.Message}";
             _logger.LogError(ex, "Failed to discard scan run {ScanRunId}", scanRunId);
+        }
+        finally
+        {
+            IsDeleting = false;
         }
     }
 
@@ -258,7 +275,10 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             var run = await _scanEngine.StartScanAsync(target, _scanCts.Token, progress);
-            _analysisEngine?.InvalidateCache(run.Id);
+            if (_analysisEngine != null)
+            {
+                await _analysisEngine.InvalidateCacheAsync(run.Id);
+            }
             if (run.Status == ScanState.Completed)
             {
                 var errorSuffix = run.ErrorCount > 0
@@ -350,7 +370,10 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             var run = await _scanEngine.ResumeScanAsync(runId, _scanCts.Token, progress);
-            _analysisEngine?.InvalidateCache(run.Id);
+            if (_analysisEngine != null)
+            {
+                await _analysisEngine.InvalidateCacheAsync(run.Id);
+            }
             var resumeErrorSuffix = run.ErrorCount > 0
                 ? $" ({run.ErrorCount:N0} inaccessible paths encountered — detailed in ScanErrors.csv)"
                 : string.Empty;
@@ -375,7 +398,7 @@ public sealed partial class ScansViewModel : ViewModelBase
     [RelayCommand]
     public async Task DiscardIncompleteScanAsync()
     {
-        if (IncompleteScan == null || IsScanning) return;
+        if (IncompleteScan == null || IsScanning || IsDeleting) return;
 
         var confirm = MessageBox.Show(
             $"Are you sure you want to discard incomplete scan '{IncompleteScan.Id}'?\n\nThis removes the incomplete run checkpoints from SQLite database. Your physical files on disk will NOT be touched.",
@@ -385,11 +408,17 @@ public sealed partial class ScansViewModel : ViewModelBase
 
         if (confirm != MessageBoxResult.Yes) return;
 
+        IsDeleting = true;
+        ScanStatusText = "Discarding incomplete scan records from database...";
+
         try
         {
             var runId = IncompleteScan.Id;
             await _repository.DiscardScanRunAsync(runId);
-            _analysisEngine?.InvalidateCache(runId);
+            if (_analysisEngine != null)
+            {
+                await _analysisEngine.InvalidateCacheAsync(runId);
+            }
             IncompleteScan = null;
             ScanStatusText = "Incomplete scan records discarded from database. Source files untouched.";
             await RefreshScansAsync();
@@ -398,6 +427,10 @@ public sealed partial class ScansViewModel : ViewModelBase
         {
             ScanStatusText = $"Failed to discard scan: {ex.Message}";
             _logger.LogError(ex, "Failed to discard scan");
+        }
+        finally
+        {
+            IsDeleting = false;
         }
     }
 
