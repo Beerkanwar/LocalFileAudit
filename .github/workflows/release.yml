@@ -30,6 +30,9 @@ jobs:
       with:
         dotnet-version: '9.0.x'
 
+    - name: Restore dependencies
+      run: dotnet restore LocalFileAudit.slnx
+
     - name: Vulnerability audit
       shell: pwsh
       run: |
@@ -42,8 +45,11 @@ jobs:
           throw "Vulnerable NuGet packages detected in solution!"
         }
 
+    - name: Build solution
+      run: dotnet build LocalFileAudit.slnx --configuration Release --no-restore
+
     - name: Run automated test suite
-      run: dotnet test LocalFileAudit.slnx --configuration Release --verbosity normal
+      run: dotnet test LocalFileAudit.slnx --configuration Release --no-build --verbosity normal
 
     - name: Publish Self-Contained Binaries (win-x64 and win-arm64)
       run: |

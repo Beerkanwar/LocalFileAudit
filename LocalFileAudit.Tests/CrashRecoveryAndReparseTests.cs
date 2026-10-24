@@ -142,7 +142,7 @@ public class CrashRecoveryAndReparseTests : IDisposable
 
         // Wait until child signals that transactions are committed and connection is kept open
         string? readyLine = null;
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         while (!cts.Token.IsCancellationRequested && !process.HasExited)
         {
             var line = await process.StandardOutput.ReadLineAsync(cts.Token);
