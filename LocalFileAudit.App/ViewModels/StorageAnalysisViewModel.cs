@@ -147,7 +147,7 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         try
         {
             StatusMessage = "Analyzing storage metrics from SQLite...";
-            var summary = await Task.Run(() => _analysisEngine.AnalyzeScanAsync(scanRunId, cancellationToken), cancellationToken);
+            var summary = await _analysisEngine.AnalyzeScanAsync(scanRunId, cancellationToken).ConfigureAwait(false);
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -236,33 +236,51 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
 
     private void OpenFolder(string path)
     {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        var cleanPath = path.Trim().Trim('"');
+        if (!Directory.Exists(cleanPath))
+        {
+            StatusMessage = "Directory does not exist on disk.";
+            return;
+        }
+
         try
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = path,
+                FileName = cleanPath,
                 UseShellExecute = true
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to open folder {Path}", path);
+            _logger.LogError(ex, "Failed to open folder {Path}", cleanPath);
+            StatusMessage = $"Unable to open folder: {ex.Message}";
         }
     }
 
     private void OpenFileWithShell(string filePath)
     {
+        if (string.IsNullOrWhiteSpace(filePath)) return;
+        var cleanPath = filePath.Trim().Trim('"');
+        if (!File.Exists(cleanPath))
+        {
+            StatusMessage = "File does not exist on disk.";
+            return;
+        }
+
         try
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = filePath,
+                FileName = cleanPath,
                 UseShellExecute = true
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to open file {FilePath}", filePath);
+            _logger.LogError(ex, "Failed to open file {FilePath}", cleanPath);
+            StatusMessage = $"Unable to open file: {ex.Message}";
         }
     }
 }

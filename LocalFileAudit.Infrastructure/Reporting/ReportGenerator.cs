@@ -325,10 +325,10 @@ public sealed class ReportGenerator : IReportGenerator
     private static string GenerateDirectoryCsv(IEnumerable<DirectorySummary> list)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("DirectoryPath,DirectSizeBytes,DirectLogicalMB,DirectFileCount");
+        sb.AppendLine("DirectoryPath,RecursiveSizeBytes,RecursiveLogicalMB,RecursiveFileCount,DirectSizeBytes,DirectLogicalMB,DirectFileCount");
         foreach (var dir in list)
         {
-            sb.AppendLine($"{EscapeCsv(dir.DirectoryPath)},{dir.DirectSizeBytes},{(dir.DirectSizeBytes / (1024.0 * 1024.0)):F2},{dir.DirectFileCount}");
+            sb.AppendLine($"{EscapeCsv(dir.DirectoryPath)},{dir.RecursiveSizeBytes},{(dir.RecursiveSizeBytes / (1024.0 * 1024.0)):F2},{dir.RecursiveFileCount},{dir.DirectSizeBytes},{(dir.DirectSizeBytes / (1024.0 * 1024.0)):F2},{dir.DirectFileCount}");
         }
         return sb.ToString();
     }
@@ -513,15 +513,13 @@ public sealed class ReportGenerator : IReportGenerator
                 // Script matched headers: FullName, Extension, SizeBytes, LastWriteTime, AgeDays, RuleCategory
                 await writer.WriteLineAsync("FullName,Extension,SizeBytes,LastWriteTime,AgeDays,RuleCategory");
 
+                var extFilter = string.IsNullOrWhiteSpace(filter?.Extension) || filter.Extension.Equals("All Extensions", StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : filter.Extension;
+
                 while (true)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-
-                    string? extFilter = null;
-                    if (filter?.Extension != null && !string.IsNullOrWhiteSpace(filter.Extension) && filter.Extension != "All Extensions")
-                    {
-                        extFilter = filter.Extension;
-                    }
 
                     var query = new FileInventoryQuery
                     {

@@ -66,7 +66,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
                 {
                     var backupPath = $"{_planFilePath}.corrupted.{DateTime.UtcNow:yyyyMMddHHmmss}.bak";
                     File.Copy(_planFilePath, backupPath, overwrite: true);
-                    PruneOldCorruptedBackups(Path.GetDirectoryName(_planFilePath) ?? ".", "archive-plan.json.corrupted.*.bak", 5);
+                    PruneOldCorruptedBackups(Path.GetDirectoryName(_planFilePath) ?? ".", $"{Path.GetFileName(_planFilePath)}.corrupted.*.bak", 5);
                 }
             }
             catch

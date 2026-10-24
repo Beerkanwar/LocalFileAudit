@@ -254,7 +254,14 @@ public sealed partial class DuplicateAnalysisViewModel : ViewModelBase
 
         try
         {
-            var args = $"/select,\"{SelectedFile.FullPath}\"";
+            var cleanPath = SelectedFile.FullPath.Trim().Trim('"');
+            if (!File.Exists(cleanPath) && !Directory.Exists(cleanPath))
+            {
+                StatusMessage = "File or directory does not exist on disk.";
+                return;
+            }
+
+            var args = $"/select,\"{cleanPath}\"";
             Process.Start(new ProcessStartInfo
             {
                 FileName = "explorer.exe",

@@ -78,6 +78,7 @@ public sealed class AiAnalysisService : IAiAnalysisService
             LargestDirectories = summary.LargestDirectories.Take(8).Select(d => new
             {
                 Path = redactPaths ? PathRedactor.RedactDirectory(d.DirectoryPath) : d.DirectoryPath,
+                TotalSizeMb = Math.Round(d.RecursiveSizeBytes / (1024.0 * 1024.0), 2),
                 DirectSizeMb = Math.Round(d.DirectSizeBytes / (1024.0 * 1024.0), 2)
             }),
             CandidatesForReview = uniqueCandidates.Select(c => new

@@ -129,64 +129,92 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
         int processed = 0;
         long totalBytesHashed = 0;
         var hashedFiles = new System.Collections.Concurrent.ConcurrentBag<FileRecord>();
-        var maxConcurrency = Math.Clamp(System.Environment.ProcessorCount / 2, 2, 4);
-        using var semaphore = new SemaphoreSlim(maxConcurrency, maxConcurrency);
+        var updatesBuffer = new System.Collections.Concurrent.ConcurrentQueue<FileHashUpdate>();
+        const int batchFlushSize = 250;
+        using var flushLock = new SemaphoreSlim(1, 1);
 
-        var hashTasks = filesToHash.Select(async file =>
+        async Task FlushUpdatesAsync(bool force, CancellationToken ct)
         {
-            await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
+            if (updatesBuffer.IsEmpty) return;
+            if (!force && updatesBuffer.Count < batchFlushSize) return;
+
+            await flushLock.WaitAsync(ct).ConfigureAwait(false);
             try
             {
-                string? hash = file.HashValue;
-
-                // Compute hash if not already cached
-                if (string.IsNullOrEmpty(hash) || file.HashAlgorithm != "SHA-256")
+                var toCommit = new List<FileHashUpdate>();
+                while (updatesBuffer.TryDequeue(out var item))
                 {
-                    // Feature S3: Check if any previous run stored a hash for the same (FullPath, SizeBytes, LastWriteTimeUtc)
-                    var existingHash = await _repository.FindExistingFileHashAsync(file.FullPath, file.SizeBytes, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(existingHash))
-                    {
-                        hash = existingHash;
-                        file.HashAlgorithm = "SHA-256";
-                        file.HashValue = hash;
-                        await _repository.UpdateFileHashAsync(file.Id, "SHA-256", hash, cancellationToken).ConfigureAwait(false);
-                        _logger.LogDebug("Reused existing SHA-256 hash for {FullPath} from prior scan run.", file.FullPath);
-                    }
-                    else
-                    {
-                        hash = await ComputeSha256SafeAsync(file.FullPath, file.LastWriteTimeUtc, cancellationToken).ConfigureAwait(false);
-                        if (!string.IsNullOrEmpty(hash))
-                        {
-                            file.HashAlgorithm = "SHA-256";
-                            file.HashValue = hash;
-                            await _repository.UpdateFileHashAsync(file.Id, "SHA-256", hash, cancellationToken).ConfigureAwait(false);
-                        }
-                    }
+                    toCommit.Add(item);
                 }
 
-                var done = Interlocked.Increment(ref processed);
-                var bytes = Interlocked.Add(ref totalBytesHashed, file.SizeBytes);
-
-                progress?.Report(new HashJobProgress
+                if (toCommit.Count > 0)
                 {
-                    FilesProcessed = done,
-                    TotalFilesToHash = filesToHash.Count,
-                    BytesHashed = bytes,
-                    CurrentFilePath = file.FullPath
-                });
-
-                if (!string.IsNullOrEmpty(hash))
-                {
-                    hashedFiles.Add(file);
+                    await _repository.UpdateFileHashBatchAsync(toCommit, ct).ConfigureAwait(false);
                 }
             }
             finally
             {
-                semaphore.Release();
+                flushLock.Release();
             }
-        });
+        }
 
-        await Task.WhenAll(hashTasks).ConfigureAwait(false);
+        var maxConcurrency = Math.Clamp(System.Environment.ProcessorCount / 2, 2, 4);
+        var parallelOptions = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = maxConcurrency,
+            CancellationToken = cancellationToken
+        };
+
+        await Parallel.ForEachAsync(filesToHash, parallelOptions, async (file, ct) =>
+        {
+            string? hash = file.HashValue;
+
+            // Compute hash if not already cached
+            if (string.IsNullOrEmpty(hash) || file.HashAlgorithm != "SHA-256")
+            {
+                // Feature S3: Check if any previous run stored a hash for the same (FullPath, SizeBytes, LastWriteTimeUtc)
+                var existingHash = await _repository.FindExistingFileHashAsync(file.FullPath, file.SizeBytes, file.LastWriteTimeUtc, ct).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(existingHash))
+                {
+                    hash = existingHash;
+                    file.HashAlgorithm = "SHA-256";
+                    file.HashValue = hash;
+                    updatesBuffer.Enqueue(new FileHashUpdate(file.Id, "SHA-256", hash));
+                    await FlushUpdatesAsync(force: false, ct).ConfigureAwait(false);
+                    _logger.LogDebug("Reused existing SHA-256 hash for {FullPath} from prior scan run.", file.FullPath);
+                }
+                else
+                {
+                    hash = await ComputeSha256SafeAsync(file.FullPath, file.LastWriteTimeUtc, ct).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(hash))
+                    {
+                        file.HashAlgorithm = "SHA-256";
+                        file.HashValue = hash;
+                        updatesBuffer.Enqueue(new FileHashUpdate(file.Id, "SHA-256", hash));
+                        await FlushUpdatesAsync(force: false, ct).ConfigureAwait(false);
+                    }
+                }
+            }
+
+            var done = Interlocked.Increment(ref processed);
+            var bytes = Interlocked.Add(ref totalBytesHashed, file.SizeBytes);
+
+            progress?.Report(new HashJobProgress
+            {
+                FilesProcessed = done,
+                TotalFilesToHash = filesToHash.Count,
+                BytesHashed = bytes,
+                CurrentFilePath = file.FullPath
+            });
+
+            if (!string.IsNullOrEmpty(hash))
+            {
+                hashedFiles.Add(file);
+            }
+        }).ConfigureAwait(false);
+
+        // Commit any remaining buffered updates
+        await FlushUpdatesAsync(force: true, cancellationToken).ConfigureAwait(false);
 
         // Group by Size AND SHA-256 Hash
         var verifiedGroups = hashedFiles

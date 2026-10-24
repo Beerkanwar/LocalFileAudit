@@ -44,6 +44,7 @@ public interface IScanRepository
     Task<IReadOnlyList<AiReportRecord>> GetAiReportsAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default);
 
     Task UpdateFileHashAsync(long fileId, string hashAlgorithm, string hashValue, CancellationToken cancellationToken = default);
+    Task UpdateFileHashBatchAsync(IEnumerable<FileHashUpdate> updates, CancellationToken cancellationToken = default);
     Task<string?> FindExistingFileHashAsync(string fullPath, long sizeBytes, DateTime? lastWriteTimeUtc, CancellationToken cancellationToken = default);
     Task<FileRecord?> GetFileByIdAsync(long fileId, CancellationToken cancellationToken = default);
     Task<RunComparisonResult> CompareScanRunsAsync(Guid baselineRunId, Guid targetRunId, CancellationToken cancellationToken = default);
@@ -63,6 +64,11 @@ public interface IScanRepository
 /// Status update data for a directory checkpoint.
 /// </summary>
 public readonly record struct DirectoryStatusUpdate(long DirectoryId, DirectoryState Status, int FilesProcessed, string? LastError);
+
+/// <summary>
+/// Hash update payload for batch persistence.
+/// </summary>
+public readonly record struct FileHashUpdate(long FileId, string HashAlgorithm, string HashValue);
 
 /// <summary>
 /// Core filesystem scanner engine.

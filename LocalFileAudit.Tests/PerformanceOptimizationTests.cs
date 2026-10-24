@@ -9,6 +9,7 @@ using LocalFileAudit.Infrastructure.Configuration;
 using LocalFileAudit.Infrastructure.Environment;
 using LocalFileAudit.Infrastructure.Logging;
 using LocalFileAudit.Infrastructure.Persistence;
+using LocalFileAudit.Infrastructure.Reporting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -261,5 +262,103 @@ public class PerformanceOptimizationTests : IDisposable
         Assert.Equal(1, result.MatchCount);
         Assert.Equal(0, result.MissingCount);
         Assert.Equal(0, result.HashMismatchCount);
+    }
+
+    [Fact]
+    public async Task UpdateFileHashBatchAsync_PersistsMultipleFileHashesInSingleTransaction()
+    {
+        var init = new SqliteDatabaseInitializer(_env, NullLogger<SqliteDatabaseInitializer>.Instance);
+        await init.InitializeAsync();
+        var repo = new SqliteScanRepository(init, NullLogger<SqliteScanRepository>.Instance);
+
+        var scanId = Guid.NewGuid();
+        var scanRun = new ScanRun { Id = scanId, Status = ScanState.InProgress };
+        await repo.CreateScanRunAsync(scanRun);
+
+        var file1 = new FileRecord
+        {
+            ScanRunId = scanId,
+            FullPath = @"C:\Test\File1.txt",
+            FileName = "File1.txt",
+            Extension = ".txt",
+            SizeBytes = 100
+        };
+        var file2 = new FileRecord
+        {
+            ScanRunId = scanId,
+            FullPath = @"C:\Test\File2.txt",
+            FileName = "File2.txt",
+            Extension = ".txt",
+            SizeBytes = 200
+        };
+        await repo.InsertFileBatchAsync(new[] { file1, file2 });
+
+        var page = await repo.QueryFilesAsync(new FileInventoryQuery { ScanRunId = scanId, Limit = 10 });
+        Assert.Equal(2, page.Items.Count);
+
+        var updates = new[]
+        {
+            new FileHashUpdate(page.Items[0].Id, "SHA-256", "HASH_111111"),
+            new FileHashUpdate(page.Items[1].Id, "SHA-256", "HASH_222222")
+        };
+
+        await repo.UpdateFileHashBatchAsync(updates);
+
+        var updated1 = await repo.GetFileByIdAsync(page.Items[0].Id);
+        var updated2 = await repo.GetFileByIdAsync(page.Items[1].Id);
+
+        Assert.NotNull(updated1);
+        Assert.Equal("SHA-256", updated1.HashAlgorithm);
+        Assert.Equal("HASH_111111", updated1.HashValue);
+
+        Assert.NotNull(updated2);
+        Assert.Equal("SHA-256", updated2.HashAlgorithm);
+        Assert.Equal("HASH_222222", updated2.HashValue);
+    }
+
+    [Fact]
+    public async Task ReportGenerator_GenerateReportsAsync_DirectorySummaryCsvIncludesRecursiveAndDirectColumns()
+    {
+        var init = new SqliteDatabaseInitializer(_env, NullLogger<SqliteDatabaseInitializer>.Instance);
+        await init.InitializeAsync();
+        var repo = new SqliteScanRepository(init, NullLogger<SqliteScanRepository>.Instance);
+
+        var scanId = Guid.NewGuid();
+        var scanRun = new ScanRun { Id = scanId, Status = ScanState.Completed, FilesDiscovered = 2, SelectedDrives = @"C:\" };
+        await repo.CreateScanRunAsync(scanRun);
+
+        var summary = new StorageMetricsSummary
+        {
+            ScanRunId = scanId,
+            IsScanComplete = true,
+            TotalFiles = 2,
+            TotalLogicalSizeBytes = 5242880,
+            LargestDirectories = new List<DirectorySummary>
+            {
+                new DirectorySummary
+                {
+                    DirectoryPath = @"C:\Test",
+                    DirectSizeBytes = 1048576,
+                    DirectFileCount = 1,
+                    RecursiveSizeBytes = 5242880,
+                    RecursiveFileCount = 5
+                }
+            }
+        };
+        await repo.SaveScanMetricsAsync(scanId, summary);
+
+        var configValidator = new ConfigurationValidator();
+        var configService = new JsonConfigurationService(_env, configValidator, NullLogger<JsonConfigurationService>.Instance);
+        var analysisEngine = new StorageAnalysisEngine(init, repo, configService, NullLogger<StorageAnalysisEngine>.Instance);
+        var generator = new ReportGenerator(analysisEngine, repo, _env, NullLogger<ReportGenerator>.Instance, configService);
+
+        var result = await generator.GenerateReportsAsync(scanId);
+        Assert.NotNull(result);
+        Assert.Contains(result.GeneratedFiles, f => f.EndsWith("DirectorySummary.csv", StringComparison.OrdinalIgnoreCase));
+
+        var dirCsvFile = result.GeneratedFiles.First(f => f.EndsWith("DirectorySummary.csv", StringComparison.OrdinalIgnoreCase));
+        var csvText = await File.ReadAllTextAsync(dirCsvFile);
+        Assert.Contains("DirectoryPath,RecursiveSizeBytes,RecursiveLogicalMB,RecursiveFileCount,DirectSizeBytes,DirectLogicalMB,DirectFileCount", csvText);
+        Assert.Contains(@"C:\Test,5242880,5.00,5,1048576,1.00,1", csvText);
     }
 }

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.15] - 2026-10-25
+
+### Performance, Persistence & Reliability Improvements
+- **Bounded Concurrency & Batch Persistence in Duplicate Detection:**
+  - Refactored `DuplicateAnalysisEngine` to process candidate duplicate files via `Parallel.ForEachAsync` with bounded concurrency, eliminating heap allocation spikes.
+  - Implemented `UpdateFileHashBatchAsync` in `SqliteScanRepository` and buffered computed hashes, committing updates in batches of 250 inside a single transaction with lock synchronization to eliminate WAL churn.
+- **Hierarchical Directory Rollup & AI Inference Accuracy:**
+  - Expanded `DirectorySummary.csv` in `ReportGenerator` to export both `RecursiveSizeBytes` (`TotalSizeBytes`) and `DirectSizeBytes`, ensuring parent folders accurately reflect aggregated descendant storage.
+  - Updated `AiAnalysisService.BuildInferencePayload` to supply recursive `TotalSizeMb` for `LargestDirectories`, providing accurate storage hotspot context to the local Ollama LLM.
+  - Hoisted and normalized extension filter evaluation in `ReportGenerator.ExportFullInventoryCsvAsync`.
+- **Archive Plan Backup Pruning:**
+  - Corrected corrupted plan backup pattern in `ArchivePlannerService.PruneOldCorruptedBackups` using `Path.GetFileName(_planFilePath)`, ensuring obsolete corrupted backups are pruned cleanly.
+- **Defensive Path Validation & UI Dispatch:**
+  - Sanitized paths and verified directory/file existence prior to launching Windows Explorer or shell viewers in `DuplicateAnalysisViewModel` and `StorageAnalysisViewModel`.
+  - Replaced redundant `Task.Run` thread pool hops in `StorageAnalysisViewModel.LoadAnalysisAsync` with direct asynchronous awaiting.
+- **Automated Test Coverage:**
+  - Added unit tests in `PerformanceOptimizationTests` verifying `UpdateFileHashBatchAsync` atomic batch updates and `DirectorySummary.csv` recursive rollup column emission.
+
 ## [1.3.14] - 2026-10-24
 
 ### Performance, Scalability & Database Optimizations

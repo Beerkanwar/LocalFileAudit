@@ -839,29 +839,50 @@ public sealed class SqliteScanRepository : IScanRepository
         return reports;
     }
 
-    public async Task UpdateFileHashAsync(long fileId, string hashAlgorithm, string hashValue, CancellationToken cancellationToken = default)
+    public async Task UpdateFileHashBatchAsync(
+        IEnumerable<FileHashUpdate> updates,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(updates);
+        var list = updates.ToList();
+        if (list.Count == 0) return;
+
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var tx = connection.BeginTransaction();
             await using var cmd = connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = @"
                 UPDATE Files
                 SET HashAlgorithm = @HashAlgorithm,
                     HashValue = @HashValue
                 WHERE Id = @Id;
             ";
-            cmd.Parameters.AddWithValue("@Id", fileId);
-            cmd.Parameters.AddWithValue("@HashAlgorithm", hashAlgorithm);
-            cmd.Parameters.AddWithValue("@HashValue", hashValue);
+            var pId = cmd.Parameters.Add("@Id", SqliteType.Integer);
+            var pAlgorithm = cmd.Parameters.Add("@HashAlgorithm", SqliteType.Text);
+            var pValue = cmd.Parameters.Add("@HashValue", SqliteType.Text);
 
-            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            foreach (var u in list)
+            {
+                pId.Value = u.FileId;
+                pAlgorithm.Value = u.HashAlgorithm;
+                pValue.Value = u.HashValue;
+                await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             _writeLock.Release();
         }
+    }
+
+    public Task UpdateFileHashAsync(long fileId, string hashAlgorithm, string hashValue, CancellationToken cancellationToken = default)
+    {
+        return UpdateFileHashBatchAsync(new[] { new FileHashUpdate(fileId, hashAlgorithm, hashValue) }, cancellationToken);
     }
 
     public async Task<string?> FindExistingFileHashAsync(string fullPath, long sizeBytes, DateTime? lastWriteTimeUtc, CancellationToken cancellationToken = default)
