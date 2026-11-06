@@ -26,8 +26,34 @@ public sealed class JsonConfigurationService : IConfigurationService
     private readonly SemaphoreSlim _fileLock = new(1, 1);
 
     private volatile AppConfiguration _current;
+    private volatile bool _isLoaded;
 
-    public AppConfiguration Current => _current;
+    public bool IsLoaded => _isLoaded;
+
+    public AppConfiguration Current
+    {
+        get
+        {
+            if (!_isLoaded && File.Exists(_environment.ConfigFilePath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_environment.ConfigFilePath);
+                    var loaded = JsonSerializer.Deserialize<AppConfiguration>(json, JsonOptions);
+                    if (loaded != null && _validator.Validate(loaded).IsValid)
+                    {
+                        _current = loaded;
+                        _isLoaded = true;
+                    }
+                }
+                catch
+                {
+                    // Fall back to existing _current
+                }
+            }
+            return _current;
+        }
+    }
 
     public JsonConfigurationService(
         IAppEnvironment environment,
@@ -114,6 +140,7 @@ public sealed class JsonConfigurationService : IConfigurationService
         }
         finally
         {
+            _isLoaded = true;
             _fileLock.Release();
         }
     }
@@ -249,6 +276,7 @@ public sealed class JsonConfigurationService : IConfigurationService
         }
         finally
         {
+            _isLoaded = true;
             _fileLock.Release();
         }
     }

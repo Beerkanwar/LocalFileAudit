@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace LocalFileAudit.App.ViewModels;
 
-public sealed partial class DashboardViewModel : ViewModelBase
+public sealed partial class DashboardViewModel : ViewModelBase, IDisposable
 {
     private readonly IScanRepository _repository;
     private readonly IStorageAnalysisEngine _analysisEngine;
@@ -93,9 +93,13 @@ public sealed partial class DashboardViewModel : ViewModelBase
             if (latest != null)
             {
                 HasScanData = true;
-                var filesCount = await _repository.GetFileCountForScanAsync(latest.Id, token);
-                var totalBytes = await _repository.GetTotalLogicalSizeBytesForScanAsync(latest.Id, token);
+                var filesCountTask = _repository.GetFileCountForScanAsync(latest.Id, token);
+                var totalBytesTask = _repository.GetTotalLogicalSizeBytesForScanAsync(latest.Id, token);
+                await Task.WhenAll(filesCountTask, totalBytesTask);
                 token.ThrowIfCancellationRequested();
+
+                var filesCount = await filesCountTask;
+                var totalBytes = await totalBytesTask;
 
                 TotalFilesDiscoveredText = $"{filesCount:N0} files";
                 TotalLogicalSizeText = $"{totalBytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
@@ -157,7 +161,18 @@ public sealed partial class DashboardViewModel : ViewModelBase
             else
             {
                 HasScanData = false;
-                var drives = DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady).ToList();
+                var drives = await Task.Run(() =>
+                {
+                    try
+                    {
+                        return DriveInfo.GetDrives().Where(d => d.DriveType == DriveType.Fixed && d.IsReady).ToList();
+                    }
+                    catch
+                    {
+                        return new List<DriveInfo>();
+                    }
+                }, token);
+
                 DrivesCountText = $"{drives.Count} drives detected";
                 TotalFilesDiscoveredText = "0 files";
                 TotalLogicalSizeText = "0.00 GB";
@@ -205,4 +220,11 @@ public sealed partial class DashboardViewModel : ViewModelBase
 
     public static IReadOnlyList<DirectorySummary> FilterNonOverlappingTreemapDirectories(IEnumerable<DirectorySummary>? directories)
         => TreemapPartitionHelper.FilterNonOverlappingDirectories(directories);
+
+    public void Dispose()
+    {
+        _metricsCts?.Cancel();
+        _metricsCts?.Dispose();
+        _metricsCts = null;
+    }
 }

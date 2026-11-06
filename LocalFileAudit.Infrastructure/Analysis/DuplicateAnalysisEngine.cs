@@ -1,4 +1,5 @@
 using System.Data;
+using System.IO;
 using System.Security.Cryptography;
 using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
@@ -66,12 +67,12 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
             SELECT * FROM Files
             WHERE ScanRunId = @ScanRunId
               AND MetadataStatus = 'Ok'
-              AND (Attributes & 1024) = 0
+              AND (Attributes & @ReparsePointMask) = 0
               AND SizeBytes IN (
                 SELECT SizeBytes FROM Files
                 WHERE ScanRunId = @ScanRunId
                   AND MetadataStatus = 'Ok'
-                  AND (Attributes & 1024) = 0
+                  AND (Attributes & @ReparsePointMask) = 0
                   AND SizeBytes >= @MinSizeBytes
                 GROUP BY SizeBytes HAVING COUNT(1) >= 2
             )
@@ -79,6 +80,7 @@ public sealed class DuplicateAnalysisEngine : IDuplicateAnalysisEngine
         ";
         cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
         cmd.Parameters.AddWithValue("@MinSizeBytes", minSizeBytes);
+        cmd.Parameters.AddWithValue("@ReparsePointMask", (int)FileAttributes.ReparsePoint);
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

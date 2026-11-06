@@ -506,12 +506,23 @@
         </Setter>
     </Style>
 
+    <!-- DataGridCell Focus Visual Style -->
+    <Style x:Key="DataGridCellFocusVisual">
+        <Setter Property="Control.Template">
+            <Setter.Value>
+                <ControlTemplate>
+                    <Rectangle Stroke="{StaticResource AccentPrimaryBrush}" StrokeThickness="1" StrokeDashArray="1 2" SnapsToDevicePixels="True" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- DataGridCell Global Style -->
     <Style TargetType="DataGridCell">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource DataGridCellFocusVisual}" />
         <Style.Triggers>
             <Trigger Property="IsSelected" Value="True">
                 <Setter Property="Background" Value="#1E3A5F" />
@@ -519,6 +530,29 @@
             </Trigger>
         </Style.Triggers>
     </Style>
+
+    <!-- Horizontal ScrollBar Template -->
+    <ControlTemplate x:Key="HorizontalScrollBarTemplate" TargetType="ScrollBar">
+        <Grid x:Name="Bg" SnapsToDevicePixels="true">
+            <Track x:Name="PART_Track" IsDirectionReversed="false" IsEnabled="{TemplateBinding IsMouseOver}">
+                <Track.DecreaseRepeatButton>
+                    <RepeatButton Command="{x:Static ScrollBar.LineLeftCommand}" Opacity="0" Focusable="false" />
+                </Track.DecreaseRepeatButton>
+                <Track.IncreaseRepeatButton>
+                    <RepeatButton Command="{x:Static ScrollBar.LineRightCommand}" Opacity="0" Focusable="false" />
+                </Track.IncreaseRepeatButton>
+                <Track.Thumb>
+                    <Thumb>
+                        <Thumb.Template>
+                            <ControlTemplate TargetType="Thumb">
+                                <Border CornerRadius="4" Background="#3B4252" />
+                            </ControlTemplate>
+                        </Thumb.Template>
+                    </Thumb>
+                </Track.Thumb>
+            </Track>
+        </Grid>
+    </ControlTemplate>
 
     <!-- Dark ScrollBar Style -->
     <Style TargetType="ScrollBar">
@@ -556,6 +590,7 @@
                 <Setter Property="Width" Value="Auto" />
                 <Setter Property="Height" Value="8" />
                 <Setter Property="MinHeight" Value="8" />
+                <Setter Property="Template" Value="{StaticResource HorizontalScrollBarTemplate}" />
             </Trigger>
         </Style.Triggers>
     </Style>

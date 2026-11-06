@@ -22,7 +22,7 @@ public static class CsvSanitizer
         if (DangerousLeadingChars.Contains(sanitized[0]))
         {
             var isNumeric = (sanitized[0] == '+' || sanitized[0] == '-') &&
-                            double.TryParse(sanitized, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _);
+                            double.TryParse(sanitized, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out _);
 
             if (!isNumeric)
             {

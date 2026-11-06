@@ -343,7 +343,7 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
             await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 16384, useAsync: true))
             await using (var writer = new StreamWriter(stream, Encoding.UTF8))
             {
-                await writer.WriteLineAsync("Status,RelativePath,SourceSizeBytes,DestinationSizeBytes,SourceHash,DestinationHash,Details,SourceFullPath,DestinationFullPath");
+                await writer.WriteLineAsync("Status,RelativePath,SourceSizeBytes,DestinationSizeBytes,SourceHash,DestinationHash,Details,SourceFullPath,DestinationFullPath").ConfigureAwait(false);
 
                 foreach (var item in summary.Items)
                 {
@@ -367,10 +367,10 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
                         escapedSrc,
                         escapedDst);
 
-                    await writer.WriteLineAsync(line);
+                    await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
                 }
 
-                await writer.FlushAsync();
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
             File.Move(tempPath, targetPath, overwrite: true);
@@ -396,10 +396,22 @@ public sealed class ArchiveVerificationService : IArchiveVerificationService
     {
         try
         {
+            var preModified = File.GetLastWriteTimeUtc(filePath);
+
             // FileAccess.Read, FileShare.ReadWrite to avoid locking out concurrent writers or readers
-            await using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536, useAsync: true);
-            using var sha = SHA256.Create();
-            var hashBytes = await sha.ComputeHashAsync(stream, cancellationToken).ConfigureAwait(false);
+            byte[] hashBytes;
+            await using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536, useAsync: true))
+            {
+                hashBytes = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+            }
+
+            var postModified = File.GetLastWriteTimeUtc(filePath);
+            if (preModified != postModified)
+            {
+                _logger.LogWarning("File modified during verification hashing: {Path}. Hash discarded for safety.", filePath);
+                return null;
+            }
+
             return Convert.ToHexString(hashBytes).ToLowerInvariant();
         }
         catch (OperationCanceledException)

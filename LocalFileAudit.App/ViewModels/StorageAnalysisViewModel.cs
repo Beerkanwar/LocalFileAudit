@@ -259,6 +259,11 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         }
     }
 
+    private static readonly HashSet<string> SafeReportExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".html", ".htm", ".md", ".csv", ".txt", ".json"
+    };
+
     private void OpenFileWithShell(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath)) return;
@@ -266,6 +271,14 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         if (!File.Exists(cleanPath))
         {
             StatusMessage = "File does not exist on disk.";
+            return;
+        }
+
+        var ext = Path.GetExtension(cleanPath);
+        if (!SafeReportExtensions.Contains(ext))
+        {
+            _logger.LogWarning("Refusing to open file with unapproved extension {Extension}: {Path}", ext, cleanPath);
+            StatusMessage = $"Cannot open files with {ext} extension for security reasons.";
             return;
         }
 

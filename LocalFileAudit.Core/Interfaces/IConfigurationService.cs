@@ -13,6 +13,11 @@ public interface IConfigurationService
     AppConfiguration Current { get; }
 
     /// <summary>
+    /// Indicates whether the configuration has been loaded from storage.
+    /// </summary>
+    bool IsLoaded { get; }
+
+    /// <summary>
     /// Loads configuration from disk, validating against safety rules.
     /// Falls back to safe defaults if missing or corrupted.
     /// </summary>

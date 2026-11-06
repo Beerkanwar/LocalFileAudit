@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Interfaces;
 using LocalFileAudit.Core.Models;
 using Microsoft.Extensions.Logging;
@@ -352,14 +353,5 @@ public sealed partial class ArchivePlanViewModel : ViewModelBase
         await _plannerService.SavePlanAsync(plan);
     }
 
-    private static string FormatBytes(long bytes)
-    {
-        if (bytes >= 1024L * 1024L * 1024L)
-            return $"{bytes / (1024.0 * 1024.0 * 1024.0):F2} GB";
-        if (bytes >= 1024L * 1024L)
-            return $"{bytes / (1024.0 * 1024.0):F2} MB";
-        if (bytes >= 1024L)
-            return $"{bytes / 1024.0:F1} KB";
-        return $"{bytes:N0} B";
-    }
+    private static string FormatBytes(long bytes) => FileSizeFormatter.Format(bytes);
 }

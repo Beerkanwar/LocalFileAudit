@@ -896,7 +896,7 @@ public sealed class SqliteScanRepository : IScanRepository
             SELECT HashValue, LastWriteTimeUtc FROM Files
             WHERE FullPath = @FullPath
               AND SizeBytes = @SizeBytes
-              AND HashAlgorithm = 'SHA-256'
+              AND HashAlgorithm = @HashAlgorithm
               AND HashValue IS NOT NULL
               AND HashValue != ''
             ORDER BY Id DESC
@@ -904,6 +904,7 @@ public sealed class SqliteScanRepository : IScanRepository
         ";
         cmd.Parameters.AddWithValue("@FullPath", fullPath);
         cmd.Parameters.AddWithValue("@SizeBytes", sizeBytes);
+        cmd.Parameters.AddWithValue("@HashAlgorithm", "SHA-256");
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -1076,7 +1077,7 @@ public sealed class SqliteScanRepository : IScanRepository
             await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
             await using (var writer = new StreamWriter(stream, System.Text.Encoding.UTF8))
             {
-                await writer.WriteLineAsync("DeltaType,FullPath,Extension,BaselineSizeBytes,TargetSizeBytes,SizeDeltaBytes,BaselineModifiedUtc,TargetModifiedUtc");
+                await writer.WriteLineAsync("DeltaType,FullPath,Extension,BaselineSizeBytes,TargetSizeBytes,SizeDeltaBytes,BaselineModifiedUtc,TargetModifiedUtc").ConfigureAwait(false);
                 foreach (var delta in comparison.Deltas)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -1092,7 +1093,7 @@ public sealed class SqliteScanRepository : IScanRepository
                         delta.BaselineModifiedUtc?.ToString("o") ?? string.Empty,
                         delta.TargetModifiedUtc?.ToString("o") ?? string.Empty);
 
-                    await writer.WriteLineAsync(line);
+                    await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
                 }
             }
 

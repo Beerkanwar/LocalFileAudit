@@ -470,7 +470,13 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         // 2. Cache miss or in-progress scan: evaluate rules from Files
         var candidates = new List<CandidateClassification>();
         var config = _configurationService.Current;
-        var extList = string.Join(", ", CandidateRuleEvaluator.AllCandidateExtensions.Select(e => $"'{e.ToLowerInvariant()}'"));
+        var extensions = CandidateRuleEvaluator.AllCandidateExtensions.Select(e => e.ToLowerInvariant()).Distinct().ToList();
+        var paramPlaceholders = new List<string>(extensions.Count);
+        for (int i = 0; i < extensions.Count; i++)
+        {
+            paramPlaceholders.Add($"@ext{i}");
+        }
+        var extClause = extensions.Count > 0 ? string.Join(", ", paramPlaceholders) : "''";
 
         await using (var conn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false))
         await using (var cmd = conn.CreateCommand())
@@ -480,13 +486,17 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
                 WHERE ScanRunId = @ScanRunId
                   AND (
                       SizeBytes >= @LargeThreshold 
-                      OR Extension IN ({extList})
+                      OR Extension IN ({extClause})
                   )
                 ORDER BY SizeBytes DESC
                 LIMIT 1000;
             ";
             cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
             cmd.Parameters.AddWithValue("@LargeThreshold", config.Analysis.LargeFileThresholdBytes / 2);
+            for (int i = 0; i < extensions.Count; i++)
+            {
+                cmd.Parameters.AddWithValue($"@ext{i}", extensions[i]);
+            }
 
             await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

@@ -29,7 +29,7 @@
                                    Foreground="#FDE68A" FontSize="12" TextWrapping="Wrap" Margin="0,4,0,0" />
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="Discard Records" Command="{Binding DiscardIncompleteScanCommand}" Margin="0,0,8,0" />
+                        <Button Style="{StaticResource SecondaryButtonStyle}" Content="Discard Records" Command="{Binding DiscardIncompleteScanCommand}" Margin="0,0,8,0" ToolTip="Discard incomplete scan checkpoints from database (source files untouched)" />
                         <Button Style="{StaticResource PrimaryButtonStyle}" Content="Resume Scan" Command="{Binding ResumeIncompleteScanCommand}" />
                     </StackPanel>
                 </Grid>

@@ -158,33 +158,52 @@ public sealed partial class MainViewModel : ObservableObject
         switch (viewName)
         {
             case "Dashboard":
-                _ = Dashboard.LoadLatestMetricsAsync();
+                SafeExecuteNavigationAsync(() => Dashboard.LoadLatestMetricsAsync(), "Dashboard");
                 break;
             case "Scans":
-                _ = Scans.RefreshScansAsync();
+                SafeExecuteNavigationAsync(() => Scans.RefreshScansAsync(), "Scans");
                 break;
             case "Inventory":
-                _ = Inventory.EnsureInitializedAsync();
+                SafeExecuteNavigationAsync(() => Inventory.EnsureInitializedAsync(), "Inventory");
                 break;
             case "StorageAnalysis":
-                _ = StorageAnalysis.EnsureInitializedAsync();
-                _ = StorageAnalysis.RefreshGeneratedReportsAsync();
+                SafeExecuteNavigationAsync(async () =>
+                {
+                    await StorageAnalysis.EnsureInitializedAsync();
+                    await StorageAnalysis.RefreshGeneratedReportsAsync();
+                }, "StorageAnalysis");
                 break;
             case "DuplicateAnalysis":
-                _ = DuplicateAnalysis.EnsureInitializedAsync();
+                SafeExecuteNavigationAsync(() => DuplicateAnalysis.EnsureInitializedAsync(), "DuplicateAnalysis");
                 break;
             case "AiReports":
-                _ = AiReports.EnsureInitializedAsync();
+                SafeExecuteNavigationAsync(() => AiReports.EnsureInitializedAsync(), "AiReports");
                 break;
             case "CompareRuns":
-                _ = CompareRuns.LoadAvailableRunsAsync();
+                SafeExecuteNavigationAsync(() => CompareRuns.LoadAvailableRunsAsync(), "CompareRuns");
                 break;
             case "ArchivePlan":
-                _ = ArchivePlan.LoadPlanAsync();
+                SafeExecuteNavigationAsync(() => ArchivePlan.LoadPlanAsync(), "ArchivePlan");
                 break;
             case "ArchiveVerification":
                 ArchiveVerification.Refresh();
                 break;
+        }
+    }
+
+    private async void SafeExecuteNavigationAsync(Func<Task> action, string targetView)
+    {
+        try
+        {
+            await action().ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on quick user navigation
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Background refresh failed when navigating to view: {ViewName}", targetView);
         }
     }
 }

@@ -96,24 +96,25 @@ public static class TreemapPartitionHelper
             .OrderByDescending(d => d.RecursiveSizeBytes > 0 ? d.RecursiveSizeBytes : d.DirectSizeBytes)
             .ToList();
 
-        var normalized = candidates
-            .Select(d => d.DirectoryPath.TrimEnd('\\', '/'))
+        var normalizedWithSlash = candidates
+            .Select(d => d.DirectoryPath.TrimEnd('\\', '/') + "\\")
+            .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var result = new List<DirectorySummary>();
         for (int i = 0; i < candidates.Count; i++)
         {
-            var path = normalized[i];
-            var prefix = path + "\\";
-            bool hasDescendant = false;
+            var prefix = candidates[i].DirectoryPath.TrimEnd('\\', '/') + "\\";
+            var idx = normalizedWithSlash.BinarySearch(prefix, StringComparer.OrdinalIgnoreCase);
 
-            for (int j = 0; j < candidates.Count; j++)
+            bool hasDescendant = false;
+            int checkIdx = idx >= 0 ? idx + 1 : ~idx;
+
+            if (checkIdx >= 0 && checkIdx < normalizedWithSlash.Count)
             {
-                if (i == j) continue;
-                if (normalized[j].StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                if (normalizedWithSlash[checkIdx].StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
                     hasDescendant = true;
-                    break;
                 }
             }
 

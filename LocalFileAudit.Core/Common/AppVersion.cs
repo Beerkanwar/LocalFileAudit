@@ -11,7 +11,8 @@ public static class AppVersion
     private static readonly Lazy<string> _current = new(() =>
     {
         var appAssembly = Assembly.GetEntryAssembly();
-        if (appAssembly == null || !appAssembly.GetName().Name?.StartsWith("LocalFileAudit", StringComparison.OrdinalIgnoreCase) == true)
+        var assemblyName = appAssembly?.GetName()?.Name;
+        if (appAssembly == null || assemblyName == null || !assemblyName.StartsWith("LocalFileAudit", StringComparison.OrdinalIgnoreCase))
         {
             appAssembly = typeof(AppVersion).Assembly;
         }
@@ -24,7 +25,7 @@ public static class AppVersion
             return plusIdx > 0 ? infoVersion[..plusIdx] : infoVersion;
         }
 
-        var ver = appAssembly.GetName().Version;
+        var ver = appAssembly?.GetName()?.Version;
         return ver != null ? $"{ver.Major}.{ver.Minor}.{ver.Build}" : "0.0.0-unknown";
     });
 

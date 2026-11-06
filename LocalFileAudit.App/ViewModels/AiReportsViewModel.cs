@@ -334,6 +334,15 @@ public sealed partial class AiReportsViewModel : ViewModelBase
             return;
         }
 
+        var ext = Path.GetExtension(reportPath);
+        var safeExtensions = new[] { ".html", ".htm", ".md", ".csv", ".txt", ".json" };
+        if (!safeExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Refusing to open report file with unapproved extension {Extension}: {Path}", ext, reportPath);
+            StatusMessage = $"Cannot open report file with {ext} extension for security reasons.";
+            return;
+        }
+
         try
         {
             Process.Start(new ProcessStartInfo

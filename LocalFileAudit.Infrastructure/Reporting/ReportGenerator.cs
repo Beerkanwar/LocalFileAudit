@@ -317,7 +317,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("Extension,FileCount,TotalSizeBytes,LogicalMB,PercentageOfStorage,PercentageOfFiles");
         foreach (var ext in list)
         {
-            sb.AppendLine($"{EscapeCsv(ext.Extension)},{ext.FileCount},{ext.TotalLogicalSizeBytes},{(ext.TotalLogicalSizeBytes / (1024.0 * 1024.0)):F2},{ext.PercentageOfTotalSize:F2},{ext.PercentageOfTotalFiles:F2}");
+            sb.AppendLine($"{CsvSanitizer.EscapeCsv(ext.Extension)},{ext.FileCount},{ext.TotalLogicalSizeBytes},{(ext.TotalLogicalSizeBytes / (1024.0 * 1024.0)):F2},{ext.PercentageOfTotalSize:F2},{ext.PercentageOfTotalFiles:F2}");
         }
         return sb.ToString();
     }
@@ -328,7 +328,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("DirectoryPath,RecursiveSizeBytes,RecursiveLogicalMB,RecursiveFileCount,DirectSizeBytes,DirectLogicalMB,DirectFileCount");
         foreach (var dir in list)
         {
-            sb.AppendLine($"{EscapeCsv(dir.DirectoryPath)},{dir.RecursiveSizeBytes},{(dir.RecursiveSizeBytes / (1024.0 * 1024.0)):F2},{dir.RecursiveFileCount},{dir.DirectSizeBytes},{(dir.DirectSizeBytes / (1024.0 * 1024.0)):F2},{dir.DirectFileCount}");
+            sb.AppendLine($"{CsvSanitizer.EscapeCsv(dir.DirectoryPath)},{dir.RecursiveSizeBytes},{(dir.RecursiveSizeBytes / (1024.0 * 1024.0)):F2},{dir.RecursiveFileCount},{dir.DirectSizeBytes},{(dir.DirectSizeBytes / (1024.0 * 1024.0)):F2},{dir.DirectFileCount}");
         }
         return sb.ToString();
     }
@@ -339,7 +339,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("FullPath,FileName,Extension,SizeBytes,LogicalMB,Category,RuleId,Explanation,LastWriteTimeUtc");
         foreach (var c in list)
         {
-            sb.AppendLine($"{EscapeCsv(c.FullPath)},{EscapeCsv(c.FileName)},{EscapeCsv(c.Extension)},{c.SizeBytes},{(c.SizeBytes / (1024.0 * 1024.0)):F2},{c.Category},{EscapeCsv(c.RuleId)},{EscapeCsv(c.Explanation)},{c.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"{CsvSanitizer.EscapeCsv(c.FullPath)},{CsvSanitizer.EscapeCsv(c.FileName)},{CsvSanitizer.EscapeCsv(c.Extension)},{c.SizeBytes},{(c.SizeBytes / (1024.0 * 1024.0)):F2},{c.Category},{CsvSanitizer.EscapeCsv(c.RuleId)},{CsvSanitizer.EscapeCsv(c.Explanation)},{c.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
         }
         return sb.ToString();
     }
@@ -350,7 +350,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("Path,Operation,ErrorCode,ErrorMessage,TimestampUtc");
         foreach (var err in errors)
         {
-            sb.AppendLine($"{EscapeCsv(err.Path)},{EscapeCsv(err.Operation)},{EscapeCsv(err.ErrorCode ?? "")},{EscapeCsv(err.ErrorMessage)},{err.TimestampUtc:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine($"{CsvSanitizer.EscapeCsv(err.Path)},{CsvSanitizer.EscapeCsv(err.Operation)},{CsvSanitizer.EscapeCsv(err.ErrorCode ?? "")},{CsvSanitizer.EscapeCsv(err.ErrorMessage)},{err.TimestampUtc:yyyy-MM-dd HH:mm:ss}");
         }
         return sb.ToString();
     }
@@ -361,12 +361,10 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("FullPath,FileName,Extension,SizeBytes,LogicalMB,CreationTimeUtc,LastWriteTimeUtc,Attributes");
         foreach (var f in files)
         {
-            sb.AppendLine($"{EscapeCsv(f.FullPath)},{EscapeCsv(f.FileName)},{EscapeCsv(f.Extension)},{f.SizeBytes},{(f.SizeBytes / (1024.0 * 1024.0)):F2},{f.CreationTimeUtc:yyyy-MM-dd HH:mm:ss},{f.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss},{f.Attributes}");
+            sb.AppendLine($"{CsvSanitizer.EscapeCsv(f.FullPath)},{CsvSanitizer.EscapeCsv(f.FileName)},{CsvSanitizer.EscapeCsv(f.Extension)},{f.SizeBytes},{(f.SizeBytes / (1024.0 * 1024.0)):F2},{f.CreationTimeUtc:yyyy-MM-dd HH:mm:ss},{f.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss},{f.Attributes}");
         }
         return sb.ToString();
     }
-
-    private static string EscapeCsv(string value) => CsvSanitizer.EscapeCsv(value);
 
     private static string EscapeMarkdown(string value)
     {
@@ -511,7 +509,7 @@ public sealed class ReportGenerator : IReportGenerator
             await using (var writer = new StreamWriter(stream, Encoding.UTF8))
             {
                 // Script matched headers: FullName, Extension, SizeBytes, LastWriteTime, AgeDays, RuleCategory
-                await writer.WriteLineAsync("FullName,Extension,SizeBytes,LastWriteTime,AgeDays,RuleCategory");
+                await writer.WriteLineAsync("FullName,Extension,SizeBytes,LastWriteTime,AgeDays,RuleCategory").ConfigureAwait(false);
 
                 var extFilter = string.IsNullOrWhiteSpace(filter?.Extension) || filter.Extension.Equals("All Extensions", StringComparison.OrdinalIgnoreCase)
                     ? null
@@ -566,8 +564,8 @@ public sealed class ReportGenerator : IReportGenerator
                             ? (now - file.LastWriteTimeUtc.Value).TotalDays.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
                             : "0.0";
 
-                        var escapedPath = EscapeCsv(file.FullPath);
-                        var escapedExtension = EscapeCsv(file.Extension);
+                        var escapedPath = CsvSanitizer.EscapeCsv(file.FullPath);
+                        var escapedExtension = CsvSanitizer.EscapeCsv(file.Extension);
 
                         var line = string.Format(
                             System.Globalization.CultureInfo.InvariantCulture,
@@ -579,7 +577,7 @@ public sealed class ReportGenerator : IReportGenerator
                             ageDays,
                             ruleCategory);
 
-                        await writer.WriteLineAsync(line);
+                        await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
                         exportedCount++;
                     }
 
@@ -592,7 +590,7 @@ public sealed class ReportGenerator : IReportGenerator
                     }
                 }
 
-                await writer.FlushAsync();
+                await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
             }
 
             File.Move(tempPath, destinationCsvPath, overwrite: true);

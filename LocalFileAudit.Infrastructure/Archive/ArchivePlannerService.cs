@@ -94,6 +94,14 @@ public sealed class ArchivePlannerService : IArchivePlannerService
 
     private async Task SavePlanUnlockedAsync(ArchivePlan plan, CancellationToken cancellationToken)
     {
+        foreach (var batch in plan.Batches)
+        {
+            if (!string.IsNullOrWhiteSpace(batch.SourcePath) && !string.IsNullOrWhiteSpace(batch.PlannedDestinationPath))
+            {
+                ValidatePathsDoNotOverlap(batch.SourcePath, batch.PlannedDestinationPath);
+            }
+        }
+
         plan.LastModifiedUtc = DateTime.UtcNow;
         var json = JsonSerializer.Serialize(plan, JsonOptions);
 

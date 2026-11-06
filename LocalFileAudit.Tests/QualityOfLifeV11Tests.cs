@@ -255,6 +255,7 @@ public sealed class QualityOfLifeV11Tests : IDisposable
     private sealed class InMemoryConfigService : LocalFileAudit.Core.Interfaces.IConfigurationService
     {
         public AppConfiguration Current { get; private set; } = new();
+        public bool IsLoaded => true;
 
         public Task<AppConfiguration> LoadAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(Current);

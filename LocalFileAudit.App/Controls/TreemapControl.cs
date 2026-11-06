@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using LocalFileAudit.Core.Common;
 using LocalFileAudit.Core.Models;
 
 namespace LocalFileAudit.App.Controls;
@@ -350,16 +351,7 @@ public sealed class TreemapControl : Canvas
         }
     }
 
-    private static string FormatBytes(long bytes)
-    {
-        if (bytes >= 1024L * 1024L * 1024L)
-            return $"{bytes / (1024.0 * 1024.0 * 1024.0):F1} GB";
-        if (bytes >= 1024L * 1024L)
-            return $"{bytes / (1024.0 * 1024.0):F1} MB";
-        if (bytes >= 1024L)
-            return $"{bytes / 1024.0:F0} KB";
-        return $"{bytes} B";
-    }
+    private static string FormatBytes(long bytes) => FileSizeFormatter.Format(bytes);
 
     public static List<DirectorySummary> FilterNonOverlapping(IEnumerable<DirectorySummary>? source)
         => TreemapPartitionHelper.FilterNonOverlappingDirectories(source).ToList();

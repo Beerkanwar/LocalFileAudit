@@ -144,6 +144,9 @@ public sealed partial class InventoryViewModel : ViewModelBase
 
     private void InitFilterOptions()
     {
+        AvailableExtensions.Add("All Extensions");
+        SelectedExtension = "All Extensions";
+
         SizeFilterOptions.Add(new SizeFilterOption { DisplayName = "All Sizes", MinBytes = null });
         SizeFilterOptions.Add(new SizeFilterOption { DisplayName = "> 10 MB", MinBytes = 10L * 1024 * 1024 });
         SizeFilterOptions.Add(new SizeFilterOption { DisplayName = "> 50 MB", MinBytes = 50L * 1024 * 1024 });

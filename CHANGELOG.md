@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.16] - 2026-11-06
+
+### Core Stability, Security Hardening & Performance Optimizations
+- **Application Startup & Lifecycle Coordination:**
+  - Refactored `App.OnStartup` into an `async void` lifecycle coordinator, ensuring host bootstrapping, database initialization, and configuration loading complete sequentially before rendering `MainWindow`.
+  - Added guarded single-instance mutex ownership tracking to prevent mutex leaks on early initialization failure.
+  - Implemented emergency logging and user notice dialogs before termination on unrecoverable memory/access violations.
+- **Resource Management & Native Handle Cleanup:**
+  - Implemented `IDisposable` on `FilesystemScanner` to release `ManualResetEventSlim` wait handles and cancel active tokens cleanly on application shutdown.
+- **Query Parameterization & Database Safety:**
+  - Parameterized `@ReparsePointMask` in `DuplicateAnalysisEngine` to replace magic numbers.
+  - Replaced SQL string interpolation for candidate extension filters in `StorageAnalysisEngine` with parameterized placeholders (`@ext0`, `@ext1`, ...).
+  - Parameterized `HashAlgorithm = @HashAlgorithm` in `SqliteScanRepository.FindExistingFileHashAsync`.
+  - Systematic application of `.ConfigureAwait(false)` across all infrastructure and repository service calls.
+- **Data Integrity & Shell Security:**
+  - Tightened `CsvSanitizer.EscapeCsv` numeric exemption from `NumberStyles.Float` to `NumberStyles.Number` to prevent formula injection bypasses via scientific notation.
+  - Unified all CSV exports to use `CsvSanitizer.EscapeCsv` directly, eliminating duplicate escaping routines.
+  - Added pre/post `LastWriteTimeUtc` checks and transitioned to `SHA256.HashDataAsync` in `ArchiveVerificationService` to detect concurrent file modifications during verification.
+  - Enforced path overlap validation in `ArchivePlannerService.SavePlanUnlockedAsync` on all persisted archive batches.
+  - Whitelisted document extensions (`.html`, `.htm`, `.md`, `.csv`, `.txt`, `.json`) before invoking `Process.Start` with shell execution.
+  - Added rate limiting and concurrency gating via `SemaphoreSlim` in `AiAnalysisService.SendChatMessageAsync`.
+- **UI, Performance & Accessibility:**
+  - Replaced $O(n^2)$ duplicate checking in `TreemapPartitionHelper.FilterNonOverlappingDirectories` with sorted prefix binary search.
+  - Parallelized dashboard metric queries via `Task.WhenAll` and offloaded `DriveInfo.GetDrives()` to background tasks.
+  - Implemented `SafeExecuteNavigationAsync` in `MainViewModel` to eliminate unobserved fire-and-forget tasks during tab switching.
+  - Restored high-contrast keyboard focus indicators on `DataGridCell` complying with WCAG 2.4.7.
+  - Added horizontal scrollbar templates in `Theme.xaml` supporting `LineLeftCommand` and `LineRightCommand`.
+  - Replaced hardcoded notification toast colors with dynamic theme brushes and disabled intrusive topmost behavior.
+  - Replaced header emoji characters with crisp vector WPF `Path` geometries.
+  - Unified byte formatting across all views and controls via a central `FileSizeFormatter` utility.
+- **Automated Test Coverage:**
+  - Expanded test suite with comprehensive verification covering `FileSizeFormatter`, numeric boundary escaping in `CsvSanitizer`, archive path overlap validation, and scanner disposal idempotency.
+
 ## [1.3.15] - 2026-10-25
 
 ### Performance, Persistence & Reliability Improvements

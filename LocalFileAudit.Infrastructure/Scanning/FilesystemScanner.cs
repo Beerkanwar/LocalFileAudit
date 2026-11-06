@@ -14,7 +14,7 @@ namespace LocalFileAudit.Infrastructure.Scanning;
 /// Safe, cancellable, resumable filesystem scanner.
 /// Operates strictly read-only with bounded concurrency, backpressure, and crash-safe checkpoints.
 /// </summary>
-public sealed class FilesystemScanner : IScanEngine
+public sealed class FilesystemScanner : IScanEngine, IDisposable
 {
     private abstract record PersistenceItem;
     private sealed record FilePersistenceItem(FileRecord File) : PersistenceItem;
@@ -29,6 +29,7 @@ public sealed class FilesystemScanner : IScanEngine
 
     private bool _isRunning;
     private bool _isPaused;
+    private bool _isDisposed;
     private ScanState _currentState = ScanState.Pending;
 
     public bool IsRunning => _isRunning;
@@ -49,6 +50,7 @@ public sealed class FilesystemScanner : IScanEngine
     {
         lock (_stateLock)
         {
+            if (_isDisposed) return;
             if (_isRunning && !_isPaused)
             {
                 _isPaused = true;
@@ -63,6 +65,7 @@ public sealed class FilesystemScanner : IScanEngine
     {
         lock (_stateLock)
         {
+            if (_isDisposed) return;
             if (_isRunning && _isPaused)
             {
                 _isPaused = false;
@@ -70,6 +73,21 @@ public sealed class FilesystemScanner : IScanEngine
                 _pauseEvent.Set();
                 _logger.LogInformation("Scan resumed.");
             }
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_stateLock)
+        {
+            if (_isDisposed) return;
+            _isDisposed = true;
+            try
+            {
+                _pauseEvent.Set();
+                _pauseEvent.Dispose();
+            }
+            catch { }
         }
     }
 
@@ -821,7 +839,30 @@ public sealed class FilesystemScanner : IScanEngine
         var rawRoots = new List<string>();
         if (target.TargetPaths.Count > 0)
         {
-            rawRoots.AddRange(target.TargetPaths);
+            foreach (var p in target.TargetPaths)
+            {
+                if (string.IsNullOrWhiteSpace(p)) continue;
+                try
+                {
+                    var full = Path.GetFullPath(p.Trim());
+                    if (Directory.Exists(full))
+                    {
+                        if (!target.FollowReparsePoints)
+                        {
+                            var attr = File.GetAttributes(full);
+                            if (attr.HasFlag(FileAttributes.ReparsePoint))
+                            {
+                                continue;
+                            }
+                        }
+                        rawRoots.Add(full);
+                    }
+                }
+                catch
+                {
+                    // Invalid path skipped safely
+                }
+            }
         }
         else if (target.IncludeFixedDrivesByDefault)
         {

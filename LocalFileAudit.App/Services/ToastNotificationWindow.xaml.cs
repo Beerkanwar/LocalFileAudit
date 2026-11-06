@@ -20,7 +20,8 @@ public partial class ToastNotificationWindow : Window
         {
             var warningBrush = Application.Current?.TryFindResource("WarningBrush") as Brush
                 ?? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F59E0B"));
-            var badgeBg = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#332414"));
+            var badgeBg = Application.Current?.TryFindResource("CardBackgroundBrush") as Brush
+                ?? new SolidColorBrush((Color)ColorConverter.ConvertFromString("#332414"));
 
             IconBadge.Background = badgeBg;
             IconBadge.BorderBrush = warningBrush;

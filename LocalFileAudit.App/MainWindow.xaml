@@ -34,7 +34,7 @@
                 <!-- Brand / Title -->
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Border Background="{StaticResource AccentPrimaryBrush}" CornerRadius="6" Width="34" Height="34" Margin="0,0,12,0">
-                        <TextBlock Text="📁" FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        <Path Fill="{StaticResource TextPrimaryBrush}" Data="M2,4 A2,2 0 0,1 4,2 L10,2 A2,2 0 0,1 12,4 L12,5 L20,5 A2,2 0 0,1 22,7 L22,18 A2,2 0 0,1 20,20 L4,20 A2,2 0 0,1 2,18 Z" Width="16" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="LocalFileAudit" FontSize="18" FontWeight="Bold" Foreground="{StaticResource TextPrimaryBrush}" />
@@ -46,7 +46,7 @@
                 <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Orientation="Horizontal">
                     <Border Background="#16382B" BorderBrush="{StaticResource SafeBrush}" BorderThickness="1" CornerRadius="14" Padding="14,5">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="🛡" Foreground="{StaticResource SafeBrush}" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <Path Fill="{StaticResource SafeBrush}" Data="M12,1 L3,5 L3,11 C3,16.5 6.8,21.7 12,23 C17.2,21.7 21,16.5 21,11 L21,5 Z" Width="12" Height="14" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center" />
                             <TextBlock Text="STRICT READ-ONLY MODE (Zero Mutations)" Foreground="#A7F3D0" FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" />
                         </StackPanel>
                     </Border>
