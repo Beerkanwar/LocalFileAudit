@@ -37,13 +37,22 @@ public sealed partial class ScansViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanDelete))]
+    [NotifyPropertyChangedFor(nameof(CanStartScan))]
     private bool _isScanning;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanDelete))]
+    [NotifyPropertyChangedFor(nameof(CanStartScan))]
     private bool _isDeleting;
 
     public bool CanDelete => !IsScanning && !IsDeleting;
+    public bool CanStartScan => !IsScanning && !IsDeleting;
+
+    [ObservableProperty]
+    private double _deletionProgressPercent;
+
+    [ObservableProperty]
+    private string _deletionProgressStatus = string.Empty;
 
     [ObservableProperty]
     private bool _isPaused;
@@ -136,20 +145,31 @@ public sealed partial class ScansViewModel : ViewModelBase
         if (confirm != MessageBoxResult.Yes) return;
 
         IsDeleting = true;
-        ScanStatusText = $"Removing scan history records for {scanRunId}... (source files untouched)";
+        DeletionProgressPercent = 0;
+        DeletionProgressStatus = $"Preparing to remove scan run {scanRunId}... (source files untouched)";
+        ScanStatusText = DeletionProgressStatus;
+
+        var progress = new Progress<DatabaseProgress>(p =>
+        {
+            DeletionProgressPercent = p.Percent;
+            DeletionProgressStatus = p.Phase;
+            ScanStatusText = p.Phase;
+        });
 
         try
         {
             await Task.Run(async () =>
             {
-                await _repository.DiscardScanRunAsync(scanRunId).ConfigureAwait(false);
+                await _repository.DiscardScanRunAsync(scanRunId, default, progress).ConfigureAwait(false);
                 if (_analysisEngine != null)
                 {
                     await _analysisEngine.InvalidateCacheAsync(scanRunId).ConfigureAwait(false);
                 }
             }).ConfigureAwait(true);
 
-            ScanStatusText = $"Scan history record {scanRunId} removed from database. Source files untouched.";
+            DeletionProgressPercent = 100;
+            DeletionProgressStatus = $"Scan history record {scanRunId} removed from database. Source files untouched.";
+            ScanStatusText = DeletionProgressStatus;
             await RefreshScansAsync();
         }
         catch (Exception ex)
@@ -237,7 +257,7 @@ public sealed partial class ScansViewModel : ViewModelBase
     [RelayCommand]
     public async Task StartScanAsync()
     {
-        if (IsScanning) return;
+        if (IsScanning || IsDeleting) return;
 
         var selectedRoots = AvailableDrives.Where(d => d.IsSelected).Select(d => d.RootPath).ToList();
 
@@ -413,14 +433,23 @@ public sealed partial class ScansViewModel : ViewModelBase
         if (confirm != MessageBoxResult.Yes) return;
 
         IsDeleting = true;
-        ScanStatusText = "Discarding incomplete scan records from database...";
+        DeletionProgressPercent = 0;
+        DeletionProgressStatus = "Preparing to discard incomplete scan records from database...";
+        ScanStatusText = DeletionProgressStatus;
+
+        var progress = new Progress<DatabaseProgress>(p =>
+        {
+            DeletionProgressPercent = p.Percent;
+            DeletionProgressStatus = p.Phase;
+            ScanStatusText = p.Phase;
+        });
 
         try
         {
             var runId = IncompleteScan.Id;
             await Task.Run(async () =>
             {
-                await _repository.DiscardScanRunAsync(runId).ConfigureAwait(false);
+                await _repository.DiscardScanRunAsync(runId, default, progress).ConfigureAwait(false);
                 if (_analysisEngine != null)
                 {
                     await _analysisEngine.InvalidateCacheAsync(runId).ConfigureAwait(false);
@@ -428,7 +457,9 @@ public sealed partial class ScansViewModel : ViewModelBase
             }).ConfigureAwait(true);
 
             IncompleteScan = null;
-            ScanStatusText = "Incomplete scan records discarded from database. Source files untouched.";
+            DeletionProgressPercent = 100;
+            DeletionProgressStatus = "Incomplete scan records discarded from database. Source files untouched.";
+            ScanStatusText = DeletionProgressStatus;
             await RefreshScansAsync();
         }
         catch (Exception ex)

@@ -31,9 +31,17 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Status Banner -->
+            <!-- Status Banner & Progress Indicator -->
             <Border Background="#1E2430" BorderBrush="{StaticResource AccentPrimaryBrush}" BorderThickness="1" CornerRadius="6" Padding="12" Margin="0,0,0,20">
-                <TextBlock Text="{Binding StatusMessage}" Foreground="#E2E8F0" FontSize="13" />
+                <StackPanel>
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="#E2E8F0" FontSize="13" />
+                    <ProgressBar IsIndeterminate="{Binding IsLoading}" Height="4" Margin="0,8,0,0"
+                                 Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                 Foreground="{StaticResource AccentHoverBrush}" Background="Transparent" BorderThickness="0" />
+                    <ProgressBar IsIndeterminate="{Binding IsGeneratingReports}" Height="4" Margin="0,8,0,0"
+                                 Visibility="{Binding IsGeneratingReports, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                 Foreground="{StaticResource AccentPrimaryBrush}" Background="Transparent" BorderThickness="0" />
+                </StackPanel>
             </Border>
 
             <!-- KPI Cards Grid -->

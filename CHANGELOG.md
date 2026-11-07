@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.18] - 2026-11-07
+
+### Real-Time Progress Visibility & Long-Running Operation Indicators
+- **Database Deletion Progress Reporting & Visual Indicators:**
+  - Added `DatabaseProgress` progress model reporting real-time percentage, phase, and item counts throughout database deletions.
+  - Enhanced `SqliteScanRepository.DiscardScanRunAsync` to report fine-grained progress across file batch deletions, directory removals, metadata cleanup, and database freelist vacuuming.
+  - Added dedicated deletion progress card and progress bar in `ScansView` bound to `DeletionProgressPercent` and `DeletionProgressStatus`, keeping users informed during multi-million record database operations with clear notices that source files on disk remain untouched.
+- **Engine Status & Live Scanning Progress Bar:**
+  - Added active scan progress bar in `ScansView` during directory traversal.
+  - Bound `StartScanCommand` enablement to `CanStartScan` to prevent concurrent scans or deletions.
+- **Global Progress Bar Indicators for Long-Running Operations:**
+  - **Inventory View:** Added indeterminate query progress bar above the virtualized DataGrid during database filtering, searching, and paging across millions of records.
+  - **Storage Analysis View:** Added loading progress bar during storage aggregation queries and report generation.
+  - **Duplicate Analysis View:** Added search progress bar while querying candidate duplicate file sizes.
+  - **Dashboard View:** Added loading indicator bar while calculating storage summaries, treemaps, and drive metrics.
+  - **Run Comparison View:** Added diff calculation progress bar during scan run comparisons.
+  - **Archive Planner View:** Added estimation progress bar while scanning directory sizes for archive plans.
+- **Automated Test Coverage:**
+  - Added automated test in `RemediationVerificationTests` verifying `DiscardScanRunAsync` progress reporting.
+
 ## [1.3.17] - 2026-11-07
 
 ### Database Scalability, Storage Reclamation & Responsiveness

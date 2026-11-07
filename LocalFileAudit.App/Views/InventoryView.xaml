@@ -143,7 +143,17 @@
 
         <!-- Section 2: Virtualized High-Performance DataGrid -->
         <Border Grid.Row="1" Style="{StaticResource CardBorderStyle}" Padding="0" Margin="0,0,0,10">
-            <DataGrid ItemsSource="{Binding Files}"
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <ProgressBar Grid.Row="0" IsIndeterminate="{Binding IsLoading}" Height="4"
+                             Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}"
+                             Foreground="{StaticResource AccentHoverBrush}" Background="Transparent" BorderThickness="0" />
+
+                <DataGrid Grid.Row="1" ItemsSource="{Binding Files}"
                       SelectedItem="{Binding SelectedFile}"
                       AutoGenerateColumns="False"
                       IsReadOnly="True"
@@ -218,6 +228,7 @@
                     </DataGridTemplateColumn>
                 </DataGrid.Columns>
             </DataGrid>
+            </Grid>
         </Border>
 
         <!-- Section 3: Pagination Bar -->

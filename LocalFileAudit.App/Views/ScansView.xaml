@@ -63,8 +63,25 @@
 
                     <!-- Start Button Row -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
-                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="▶  Start File Inventory Scan" Command="{Binding StartScanCommand}" />
+                        <Button Style="{StaticResource PrimaryButtonStyle}" Content="▶  Start File Inventory Scan" Command="{Binding StartScanCommand}" IsEnabled="{Binding CanStartScan}" />
                     </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Database Deletion Progress Notification Card (Visible when deleting database records) -->
+            <Border Visibility="{Binding IsDeleting, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    Background="#2A1515" BorderBrush="{StaticResource ErrorBrush}" BorderThickness="1" CornerRadius="8" Padding="16" Margin="0,0,0,20">
+                <StackPanel>
+                    <Grid Margin="0,0,0,8">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="🗑  Database Record Deletion in Progress" FontWeight="Bold" FontSize="14" Foreground="#FCA5A5" />
+                            <TextBlock Text="— Physical files on disk will NOT be touched" FontSize="12" Foreground="#F87171" Margin="8,0,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding DeletionProgressPercent, StringFormat='{}{0:F0}%'}" HorizontalAlignment="Right" FontWeight="Bold" FontSize="14" Foreground="#FCA5A5" />
+                    </Grid>
+                    <ProgressBar Value="{Binding DeletionProgressPercent}" Maximum="100" Height="8"
+                                 Foreground="{StaticResource ErrorBrush}" Background="#1F1010" BorderThickness="0" Margin="0,0,0,8" />
+                    <TextBlock Text="{Binding DeletionProgressStatus}" FontSize="12" Foreground="#FECACA" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
             </Border>
 
@@ -75,6 +92,11 @@
                         <TextBlock Text="Live Scan Engine Status" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <TextBlock Text="{Binding ScanStatusText}" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="13" Foreground="{StaticResource AccentHoverBrush}" FontWeight="SemiBold" />
                     </Grid>
+
+                    <!-- Live Scan Progress Bar -->
+                    <ProgressBar IsIndeterminate="{Binding IsScanning}" Height="6" Margin="0,4,0,12"
+                                 Visibility="{Binding IsScanning, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                 Foreground="{StaticResource AccentPrimaryBrush}" Background="{StaticResource CardElevatedBackgroundBrush}" BorderThickness="0" />
 
                     <!-- Metrics Grid -->
                     <UniformGrid Columns="4" Margin="0,8,0,16">

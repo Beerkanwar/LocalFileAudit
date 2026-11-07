@@ -43,6 +43,9 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         => OnPropertyChanged(nameof(HasExportedReport));
 
     [ObservableProperty]
+    private bool _isLoading;
+
+    [ObservableProperty]
     private bool _isGeneratingReports;
 
     public ObservableCollection<ScanRun> AvailableScans { get; } = new();
@@ -130,6 +133,7 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
 
     private async Task LoadAnalysisSafeAsync(Guid scanRunId, CancellationToken cancellationToken)
     {
+        IsLoading = true;
         try
         {
             await LoadAnalysisAsync(scanRunId, cancellationToken);
@@ -138,6 +142,10 @@ public sealed partial class StorageAnalysisViewModel : ViewModelBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error analyzing scan {ScanId}", scanRunId);
+        }
+        finally
+        {
+            IsLoading = false;
         }
     }
 

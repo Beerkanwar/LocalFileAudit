@@ -85,6 +85,17 @@
                 </Grid>
             </Border>
 
+            <!-- Candidate Search Progress Bar -->
+            <Grid Margin="0,0,0,14" Visibility="{Binding IsAnalyzing, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Searching database for identical-size duplicate candidates..." FontSize="11" Foreground="{StaticResource AccentHoverBrush}" Margin="0,0,0,4" />
+                <ProgressBar Grid.Row="1" IsIndeterminate="True" Height="6"
+                             Foreground="{StaticResource AccentPrimaryBrush}" Background="#1A1C22" BorderThickness="0" />
+            </Grid>
+
             <!-- Hashing Progress Bar -->
             <Grid Margin="0,0,0,14" Visibility="{Binding IsHashing, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>

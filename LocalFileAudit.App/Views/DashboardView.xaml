@@ -48,6 +48,11 @@
                 </Grid>
             </Border>
 
+            <!-- Loading Progress Bar -->
+            <ProgressBar IsIndeterminate="{Binding IsLoading}" Height="4" Margin="0,0,0,16"
+                         Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}"
+                         Foreground="{StaticResource AccentHoverBrush}" Background="Transparent" BorderThickness="0" />
+
             <!-- KPI Metric Cards Grid -->
             <UniformGrid Columns="4" Margin="0,0,0,20">
                 

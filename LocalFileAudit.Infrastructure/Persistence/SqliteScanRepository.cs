@@ -187,10 +187,42 @@ public sealed class SqliteScanRepository : IScanRepository
         return runs;
     }
 
-    public async Task DiscardScanRunAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    public async Task DiscardScanRunAsync(
+        Guid scanRunId,
+        CancellationToken cancellationToken = default,
+        IProgress<DatabaseProgress>? progress = null)
     {
         _logger.LogInformation("Discarding scan run {ScanRunId} in bounded chunks...", scanRunId);
         var idStr = scanRunId.ToString();
+
+        // 0. Query total records to delete so we can report meaningful real-time progress
+        long totalFiles = 0;
+        long totalDirs = 0;
+        try
+        {
+            await using var countConn = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var countCmd = countConn.CreateCommand();
+            countCmd.CommandText = @"
+                SELECT 
+                    (SELECT COUNT(1) FROM Files WHERE ScanRunId = @Id),
+                    (SELECT COUNT(1) FROM Directories WHERE ScanRunId = @Id);
+            ";
+            countCmd.Parameters.AddWithValue("@Id", idStr);
+            await using var reader = await countCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                totalFiles = reader.GetInt64(0);
+                totalDirs = reader.GetInt64(1);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed pre-calculating total records to delete for scan {ScanRunId}.", scanRunId);
+        }
+
+        long totalItems = totalFiles + totalDirs;
+        progress?.Report(new DatabaseProgress("Starting database record deletion...", 0.0, 0, totalItems));
+
         int totalFilesDeleted = 0;
 
         // 1. Delete Files in bounded batches (25,000 rows per transaction) to prevent holding exclusive locks and limit WAL frame growth
@@ -231,9 +263,22 @@ public sealed class SqliteScanRepository : IScanRepository
             }
 
             if (deletedInBatch == 0) break;
+
+            double filePercent = totalFiles > 0
+                ? Math.Min(85.0, (double)totalFilesDeleted / totalFiles * 85.0)
+                : 85.0;
+
+            progress?.Report(new DatabaseProgress(
+                $"Deleting file records ({totalFilesDeleted:N0} / {totalFiles:N0})...",
+                filePercent,
+                totalFilesDeleted,
+                totalItems));
+
             // Delay briefly to allow readers and the OS I/O scheduler to breathe
             await Task.Delay(15, cancellationToken).ConfigureAwait(false);
         }
+
+        int totalDirsDeleted = 0;
 
         // 2. Delete Directories in bounded batches (10,000 rows per transaction)
         while (!cancellationToken.IsCancellationRequested)
@@ -250,6 +295,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 ";
                 cmd.Parameters.AddWithValue("@Id", idStr);
                 deletedInBatch = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                totalDirsDeleted += deletedInBatch;
             }
             finally
             {
@@ -257,8 +303,25 @@ public sealed class SqliteScanRepository : IScanRepository
             }
 
             if (deletedInBatch == 0) break;
+
+            double dirPercent = totalDirs > 0
+                ? 85.0 + Math.Min(10.0, (double)totalDirsDeleted / totalDirs * 10.0)
+                : 95.0;
+
+            progress?.Report(new DatabaseProgress(
+                $"Deleting directory records ({totalDirsDeleted:N0} / {totalDirs:N0})...",
+                dirPercent,
+                totalFilesDeleted + totalDirsDeleted,
+                totalItems));
+
             await Task.Delay(15, cancellationToken).ConfigureAwait(false);
         }
+
+        progress?.Report(new DatabaseProgress(
+            "Deleting metadata and scan metrics...",
+            96.0,
+            totalFilesDeleted + totalDirsDeleted,
+            totalItems));
 
         // 3. Delete remaining child tables and parent ScanRuns record
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -280,6 +343,12 @@ public sealed class SqliteScanRepository : IScanRepository
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
 
+            progress?.Report(new DatabaseProgress(
+                "Reclaiming disk space and vacuuming database freelist...",
+                98.0,
+                totalItems,
+                totalItems));
+
             // Reclaim disk space by truncating WAL and returning freelist pages to OS
             try
             {
@@ -291,6 +360,12 @@ public sealed class SqliteScanRepository : IScanRepository
             {
                 _logger.LogDebug(ex, "WAL checkpoint truncate and incremental vacuum after discard skipped.");
             }
+
+            progress?.Report(new DatabaseProgress(
+                "Deletion complete. Source files untouched.",
+                100.0,
+                totalItems,
+                totalItems));
 
             _logger.LogInformation("Discarded scan run {ScanRunId} from local database safely.", scanRunId);
         }

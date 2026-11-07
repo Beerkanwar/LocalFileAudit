@@ -21,7 +21,7 @@ public interface IScanRepository
     Task<ScanRun?> GetScanRunAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ScanRun>> GetRecentScanRunsAsync(int count = 20, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<ScanRun>> GetIncompleteScanRunsAsync(CancellationToken cancellationToken = default);
-    Task DiscardScanRunAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    Task DiscardScanRunAsync(Guid scanRunId, CancellationToken cancellationToken = default, IProgress<DatabaseProgress>? progress = null);
 
     Task InsertDirectoryBatchAsync(IEnumerable<DirectoryRecord> directories, CancellationToken cancellationToken = default);
     Task UpdateDirectoryStatusAsync(long directoryId, DirectoryState status, int filesProcessed, string? lastError, CancellationToken cancellationToken = default);

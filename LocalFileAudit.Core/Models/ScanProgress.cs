@@ -29,3 +29,12 @@ public sealed class ScanTarget
     public bool LowImpactMode { get; set; } = true;
     public bool RecordCloudPlaceholders { get; set; } = true;
 }
+
+/// <summary>
+/// Progress snapshot reported during database record deletion, vacuuming, or maintenance.
+/// </summary>
+public readonly record struct DatabaseProgress(
+    string Phase,
+    double Percent,
+    long ItemsProcessed,
+    long TotalItems);

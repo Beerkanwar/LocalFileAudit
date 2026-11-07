@@ -211,6 +211,53 @@ public class RemediationVerificationTests : IDisposable
         Assert.Equal(0, countAfter);
     }
 
+    [Fact]
+    public async Task SqliteScanRepository_DiscardScanRunAsync_ReportsAccurateProgress()
+    {
+        var init = new SqliteDatabaseInitializer(_env, NullLogger<SqliteDatabaseInitializer>.Instance);
+        await init.InitializeAsync();
+
+        var repo = new SqliteScanRepository(init, NullLogger<SqliteScanRepository>.Instance);
+        var scanId = Guid.NewGuid();
+
+        await repo.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.Completed,
+            StartTimeUtc = DateTime.UtcNow
+        });
+
+        var files = new List<FileRecord>();
+        for (int i = 0; i < 20; i++)
+        {
+            files.Add(new FileRecord
+            {
+                ScanRunId = scanId,
+                FullPath = $@"C:\ProgressTest\file_{i}.txt",
+                SizeBytes = 2048,
+                Extension = ".txt"
+            });
+        }
+        await repo.InsertFileBatchAsync(files);
+
+        var reportedProgress = new List<DatabaseProgress>();
+        var syncReporter = new SynchronousProgress<DatabaseProgress>(p => reportedProgress.Add(p));
+
+        await repo.DiscardScanRunAsync(scanId, default, syncReporter);
+
+        Assert.NotEmpty(reportedProgress);
+        Assert.Contains(reportedProgress, p => p.Percent >= 0.0);
+        Assert.Contains(reportedProgress, p => p.Percent == 100.0);
+        Assert.Equal(0, await repo.GetFileCountForScanAsync(scanId));
+    }
+
+    private sealed class SynchronousProgress<T> : IProgress<T>
+    {
+        private readonly Action<T> _handler;
+        public SynchronousProgress(Action<T> handler) => _handler = handler;
+        public void Report(T value) => _handler(value);
+    }
+
     private sealed class TestAppEnvironment : IAppEnvironment
     {
         public string ApplicationDataDirectory { get; }

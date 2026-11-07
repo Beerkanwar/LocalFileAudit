@@ -73,6 +73,11 @@
             </Grid>
         </Border>
 
+        <!-- Comparison Progress Bar -->
+        <ProgressBar Grid.Row="1" IsIndeterminate="{Binding IsLoading}" Height="4" VerticalAlignment="Bottom" Margin="0,0,0,16"
+                     Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}"
+                     Foreground="{StaticResource AccentPrimaryBrush}" Background="Transparent" BorderThickness="0" />
+
         <!-- KPI Metric Cards Grid -->
         <UniformGrid Grid.Row="2" Columns="4" Margin="0,0,0,16" Visibility="{Binding HasComparisonResult, Converter={StaticResource BooleanToVisibilityConverter}}">
             <!-- Metric 1: New Files -->
