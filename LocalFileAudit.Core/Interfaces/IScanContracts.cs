@@ -58,6 +58,8 @@ public interface IScanRepository
     Task<StorageMetricsSummary?> GetScanMetricsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task SaveScanMetricsAsync(Guid scanRunId, StorageMetricsSummary summary, CancellationToken cancellationToken = default);
     Task CheckpointTruncateAsync(CancellationToken cancellationToken = default);
+    Task IncrementalVacuumAsync(int maxPages = 5000, CancellationToken cancellationToken = default);
+    Task VacuumDatabaseAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>

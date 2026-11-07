@@ -140,11 +140,15 @@ public sealed partial class ScansViewModel : ViewModelBase
 
         try
         {
-            await _repository.DiscardScanRunAsync(scanRunId);
-            if (_analysisEngine != null)
+            await Task.Run(async () =>
             {
-                await _analysisEngine.InvalidateCacheAsync(scanRunId);
-            }
+                await _repository.DiscardScanRunAsync(scanRunId).ConfigureAwait(false);
+                if (_analysisEngine != null)
+                {
+                    await _analysisEngine.InvalidateCacheAsync(scanRunId).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(true);
+
             ScanStatusText = $"Scan history record {scanRunId} removed from database. Source files untouched.";
             await RefreshScansAsync();
         }
@@ -414,11 +418,15 @@ public sealed partial class ScansViewModel : ViewModelBase
         try
         {
             var runId = IncompleteScan.Id;
-            await _repository.DiscardScanRunAsync(runId);
-            if (_analysisEngine != null)
+            await Task.Run(async () =>
             {
-                await _analysisEngine.InvalidateCacheAsync(runId);
-            }
+                await _repository.DiscardScanRunAsync(runId).ConfigureAwait(false);
+                if (_analysisEngine != null)
+                {
+                    await _analysisEngine.InvalidateCacheAsync(runId).ConfigureAwait(false);
+                }
+            }).ConfigureAwait(true);
+
             IncompleteScan = null;
             ScanStatusText = "Incomplete scan records discarded from database. Source files untouched.";
             await RefreshScansAsync();

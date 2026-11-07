@@ -38,11 +38,26 @@ public sealed class DirectoryRecord
 /// </summary>
 public sealed class FileRecord
 {
+    private string _parentPath = string.Empty;
+    private string _fileName = string.Empty;
+
     public long Id { get; set; }
     public Guid ScanRunId { get; set; }
     public string FullPath { get; set; } = string.Empty;
-    public string ParentPath { get; set; } = string.Empty;
-    public string FileName { get; set; } = string.Empty;
+    public string ParentPath
+    {
+        get => string.IsNullOrEmpty(_parentPath) && !string.IsNullOrEmpty(FullPath)
+            ? (Path.GetDirectoryName(FullPath) ?? string.Empty)
+            : _parentPath;
+        set => _parentPath = value ?? string.Empty;
+    }
+    public string FileName
+    {
+        get => string.IsNullOrEmpty(_fileName) && !string.IsNullOrEmpty(FullPath)
+            ? Path.GetFileName(FullPath)
+            : _fileName;
+        set => _fileName = value ?? string.Empty;
+    }
     public string Extension { get; set; } = string.Empty;
     public long SizeBytes { get; set; }
     public DateTime? CreationTimeUtc { get; set; }

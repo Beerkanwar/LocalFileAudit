@@ -16,6 +16,8 @@ public sealed class SqliteScanRepository : IScanRepository
     private readonly ILogger<SqliteScanRepository> _logger;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly string _connectionString;
+    private long _filesInsertedSinceCheckpoint;
+    private const int CheckpointFileThreshold = 25000;
 
     public SqliteScanRepository(IDatabaseInitializer initializer, ILogger<SqliteScanRepository> logger)
     {
@@ -189,8 +191,9 @@ public sealed class SqliteScanRepository : IScanRepository
     {
         _logger.LogInformation("Discarding scan run {ScanRunId} in bounded chunks...", scanRunId);
         var idStr = scanRunId.ToString();
+        int totalFilesDeleted = 0;
 
-        // 1. Delete Files in bounded batches (50,000 rows per transaction) to prevent holding exclusive locks
+        // 1. Delete Files in bounded batches (25,000 rows per transaction) to prevent holding exclusive locks and limit WAL frame growth
         while (!cancellationToken.IsCancellationRequested)
         {
             int deletedInBatch = 0;
@@ -201,10 +204,26 @@ public sealed class SqliteScanRepository : IScanRepository
                 await using var cmd = connection.CreateCommand();
                 cmd.CommandText = @"
                     DELETE FROM Files 
-                    WHERE Id IN (SELECT Id FROM Files WHERE ScanRunId = @Id LIMIT 50000);
+                    WHERE Id IN (SELECT Id FROM Files WHERE ScanRunId = @Id LIMIT 25000);
                 ";
                 cmd.Parameters.AddWithValue("@Id", idStr);
                 deletedInBatch = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                totalFilesDeleted += deletedInBatch;
+
+                // Checkpoint passive WAL every 50,000 deleted rows to prevent WAL file ballooning during large deletions
+                if (totalFilesDeleted > 0 && (totalFilesDeleted % 50000 == 0))
+                {
+                    try
+                    {
+                        await using var cpCmd = connection.CreateCommand();
+                        cpCmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
+                        await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Passive checkpoint during file discard skipped.");
+                    }
+                }
             }
             finally
             {
@@ -212,10 +231,11 @@ public sealed class SqliteScanRepository : IScanRepository
             }
 
             if (deletedInBatch == 0) break;
-            await Task.Yield();
+            // Delay briefly to allow readers and the OS I/O scheduler to breathe
+            await Task.Delay(15, cancellationToken).ConfigureAwait(false);
         }
 
-        // 2. Delete Directories in bounded batches (25,000 rows per transaction)
+        // 2. Delete Directories in bounded batches (10,000 rows per transaction)
         while (!cancellationToken.IsCancellationRequested)
         {
             int deletedInBatch = 0;
@@ -226,7 +246,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 await using var cmd = connection.CreateCommand();
                 cmd.CommandText = @"
                     DELETE FROM Directories 
-                    WHERE Id IN (SELECT Id FROM Directories WHERE ScanRunId = @Id LIMIT 25000);
+                    WHERE Id IN (SELECT Id FROM Directories WHERE ScanRunId = @Id LIMIT 10000);
                 ";
                 cmd.Parameters.AddWithValue("@Id", idStr);
                 deletedInBatch = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -237,7 +257,7 @@ public sealed class SqliteScanRepository : IScanRepository
             }
 
             if (deletedInBatch == 0) break;
-            await Task.Yield();
+            await Task.Delay(15, cancellationToken).ConfigureAwait(false);
         }
 
         // 3. Delete remaining child tables and parent ScanRuns record
@@ -260,16 +280,16 @@ public sealed class SqliteScanRepository : IScanRepository
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-            // Reclaim disk space by truncating WAL
+            // Reclaim disk space by truncating WAL and returning freelist pages to OS
             try
             {
                 await using var cpCmd = connection.CreateCommand();
-                cpCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                cpCmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(5000);";
                 await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "WAL checkpoint truncate after discard skipped.");
+                _logger.LogDebug(ex, "WAL checkpoint truncate and incremental vacuum after discard skipped.");
             }
 
             _logger.LogInformation("Discarded scan run {ScanRunId} from local database safely.", scanRunId);
@@ -482,6 +502,22 @@ public sealed class SqliteScanRepository : IScanRepository
             }
 
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            // Periodically issue a passive WAL checkpoint during massive ingestion runs to prevent WAL bloat
+            if (Interlocked.Add(ref _filesInsertedSinceCheckpoint, list.Count) >= CheckpointFileThreshold)
+            {
+                Interlocked.Exchange(ref _filesInsertedSinceCheckpoint, 0);
+                try
+                {
+                    await using var cpCmd = connection.CreateCommand();
+                    cpCmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
+                    await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Periodic WAL passive checkpoint during file insertion skipped.");
+                }
+            }
         }
         finally
         {
@@ -873,6 +909,22 @@ public sealed class SqliteScanRepository : IScanRepository
             }
 
             await tx.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            // Periodically issue a passive WAL checkpoint during massive ingestion runs to prevent WAL bloat
+            if (Interlocked.Add(ref _filesInsertedSinceCheckpoint, list.Count) >= CheckpointFileThreshold)
+            {
+                Interlocked.Exchange(ref _filesInsertedSinceCheckpoint, 0);
+                try
+                {
+                    await using var cpCmd = connection.CreateCommand();
+                    cpCmd.CommandText = "PRAGMA wal_checkpoint(PASSIVE);";
+                    await cpCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Periodic WAL passive checkpoint during file insertion skipped.");
+                }
+            }
         }
         finally
         {
@@ -1409,6 +1461,49 @@ public sealed class SqliteScanRepository : IScanRepository
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Explicit WAL checkpoint TRUNCATE skipped or failed.");
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task IncrementalVacuumAsync(int maxPages = 5000, CancellationToken cancellationToken = default)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = $"PRAGMA incremental_vacuum({Math.Max(1, maxPages)});";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("SQLite incremental vacuum completed ({MaxPages} pages).", maxPages);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SQLite incremental vacuum skipped or failed.");
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task VacuumDatabaseAsync(CancellationToken cancellationToken = default)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "PRAGMA auto_vacuum = INCREMENTAL; VACUUM;";
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("SQLite full VACUUM executed successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "SQLite full VACUUM failed.");
+            throw;
         }
         finally
         {

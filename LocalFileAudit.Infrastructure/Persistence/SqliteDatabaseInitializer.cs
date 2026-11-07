@@ -48,6 +48,8 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
                 PRAGMA journal_mode = WAL;
                 PRAGMA synchronous = NORMAL;
                 PRAGMA foreign_keys = ON;
+                PRAGMA auto_vacuum = INCREMENTAL;
+                PRAGMA wal_autocheckpoint = 1000;
             ";
             await pragmaCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -232,9 +234,9 @@ public sealed class SqliteDatabaseInitializer : IDatabaseInitializer
             await using var connection = new SqliteConnection(connectionString);
             await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
             await using var cmd = connection.CreateCommand();
-            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA optimize;";
+            cmd.CommandText = "PRAGMA wal_checkpoint(TRUNCATE); PRAGMA incremental_vacuum(5000); PRAGMA optimize;";
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("SQLite WAL TRUNCATE checkpoint executed successfully.");
+            _logger.LogInformation("SQLite WAL TRUNCATE checkpoint and incremental vacuum executed successfully.");
         }
         catch (Exception ex)
         {

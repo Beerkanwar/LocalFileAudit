@@ -142,6 +142,75 @@ public class RemediationVerificationTests : IDisposable
         Assert.DoesNotContain(filtered, d => d.DirectoryPath == @"C:\Projects");
     }
 
+    [Fact]
+    public void FileRecord_SelfDerivesParentPathAndFileNameWhenEmpty()
+    {
+        var record = new FileRecord
+        {
+            FullPath = @"C:\Data\Logs\app.log"
+        };
+
+        Assert.Equal(@"C:\Data\Logs", record.ParentPath);
+        Assert.Equal("app.log", record.FileName);
+
+        // Explicit overrides must be preserved
+        record.ParentPath = @"D:\Custom";
+        record.FileName = "custom.txt";
+        Assert.Equal(@"D:\Custom", record.ParentPath);
+        Assert.Equal("custom.txt", record.FileName);
+    }
+
+    [Fact]
+    public async Task SqliteScanRepository_IncrementalVacuumAndVacuumDatabase_ExecuteCleanly()
+    {
+        var init = new SqliteDatabaseInitializer(_env, NullLogger<SqliteDatabaseInitializer>.Instance);
+        await init.InitializeAsync();
+
+        var repo = new SqliteScanRepository(init, NullLogger<SqliteScanRepository>.Instance);
+
+        // Should complete without throwing exceptions
+        await repo.IncrementalVacuumAsync(100);
+        await repo.VacuumDatabaseAsync();
+    }
+
+    [Fact]
+    public async Task SqliteScanRepository_BatchedDeletionAndCheckpointing_ReclaimsCleanly()
+    {
+        var init = new SqliteDatabaseInitializer(_env, NullLogger<SqliteDatabaseInitializer>.Instance);
+        await init.InitializeAsync();
+
+        var repo = new SqliteScanRepository(init, NullLogger<SqliteScanRepository>.Instance);
+        var scanId = Guid.NewGuid();
+
+        await repo.CreateScanRunAsync(new ScanRun
+        {
+            Id = scanId,
+            Status = ScanState.Completed,
+            StartTimeUtc = DateTime.UtcNow
+        });
+
+        var files = new List<FileRecord>();
+        for (int i = 0; i < 50; i++)
+        {
+            files.Add(new FileRecord
+            {
+                ScanRunId = scanId,
+                FullPath = $@"C:\TestFolder\file_{i}.txt",
+                SizeBytes = 1024,
+                Extension = ".txt"
+            });
+        }
+
+        await repo.InsertFileBatchAsync(files);
+        var count = await repo.GetFileCountForScanAsync(scanId);
+        Assert.Equal(50, count);
+
+        // Discard should remove all records in bounded batches and checkpoint/vacuum
+        await repo.DiscardScanRunAsync(scanId);
+        var countAfter = await repo.GetFileCountForScanAsync(scanId);
+        Assert.Equal(0, countAfter);
+    }
+
     private sealed class TestAppEnvironment : IAppEnvironment
     {
         public string ApplicationDataDirectory { get; }

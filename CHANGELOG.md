@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.17] - 2026-11-07
+
+### Database Scalability, Storage Reclamation & Responsiveness
+- **Periodic WAL Checkpointing During Ingestion & Hashing:**
+  - Implemented automatic passive WAL checkpointing (`PRAGMA wal_checkpoint(PASSIVE);`) every 25,000 inserted files in `SqliteScanRepository.InsertFileBatchAsync` and hash updates in `UpdateFileHashBatchAsync`, preventing SQLite write-ahead log files from ballooning to multi-gigabyte sizes during large disk scans.
+- **Incremental Auto-Vacuum & Freelist Reclamation:**
+  - Configured `PRAGMA auto_vacuum = INCREMENTAL;` and `PRAGMA wal_autocheckpoint = 1000;` on database initialization.
+  - Implemented `IncrementalVacuumAsync` and `VacuumDatabaseAsync` in `IScanRepository` and `SqliteScanRepository` to return freed database pages back to the operating system after large deletion operations.
+  - Added incremental vacuuming alongside truncate checkpoints on scan run discard and application shutdown.
+- **Non-Blocking Chunked Scan Discard:**
+  - Optimized `SqliteScanRepository.DiscardScanRunAsync` to delete file records in bounded chunks of 25,000 with passive WAL draining every 50,000 rows.
+  - Added bounded delay yielding (`Task.Delay(15)`) between chunks to allow concurrent readers and OS I/O queues to process without contention.
+  - Reduced directory deletion batch size to 10,000 rows.
+- **UI Dispatcher Thread Offloading:**
+  - Offloaded scan history deletion and incomplete scan discard workflows to background worker threads via `Task.Run` in `ScansViewModel`, completely preventing UI thread freezes and "Not Responding" titlebar states during large multi-million record removals.
+- **Memory Optimization in File Records:**
+  - Made `FileRecord.ParentPath` and `FileRecord.FileName` self-deriving on demand from `FullPath` when unpopulated, reducing string memory allocations while preserving full backward compatibility and query index performance.
+- **Automated Test Coverage:**
+  - Added verification tests in `RemediationVerificationTests` covering `FileRecord` self-derivation, `IncrementalVacuumAsync`, `VacuumDatabaseAsync`, and chunked scan discard and freelist reclamation.
+
 ## [1.3.16] - 2026-11-06
 
 ### Core Stability, Security Hardening & Performance Optimizations
