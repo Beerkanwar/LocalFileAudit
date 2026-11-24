@@ -205,7 +205,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         previewSb.AppendLine("    $PSNativeCommandUseErrorActionPreference = $false");
         previewSb.AppendLine("}");
         previewSb.AppendLine("$logDir = Join-Path $PSScriptRoot 'logs'");
-        previewSb.AppendLine("if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }");
+        previewSb.AppendLine("if (-not (Test-Path -LiteralPath $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }");
         previewSb.AppendLine();
 
         foreach (var b in plan.Batches)
@@ -223,7 +223,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             previewSb.AppendLine("$safeSrc = if ($src.EndsWith('\\') -and -not $src.EndsWith(':\\')) { $src.TrimEnd('\\') } elseif ($src.EndsWith(':\\')) { $src + '.' } else { $src }");
             previewSb.AppendLine("$safeDst = if ($dst.EndsWith('\\') -and -not $dst.EndsWith(':\\')) { $dst.TrimEnd('\\') } elseif ($dst.EndsWith(':\\')) { $dst + '.' } else { $dst }");
             previewSb.AppendLine($"$log = Join-Path $logDir 'preview-{escapedCleanName}.log'");
-            previewSb.AppendLine("if (Test-Path $src) {");
+            previewSb.AppendLine("if (Test-Path -LiteralPath $src) {");
             previewSb.AppendLine("    # Robocopy /L = List only (no file copy occurs)");
             previewSb.AppendLine("    robocopy $safeSrc $safeDst /E /COPY:DAT /XJ /L /NP /R:1 /W:1 /LOG+:$log");
             previewSb.AppendLine("    if ($LASTEXITCODE -ge 8) {");
@@ -251,7 +251,7 @@ public sealed class ArchivePlannerService : IArchivePlannerService
         copySb.AppendLine("    $PSNativeCommandUseErrorActionPreference = $false");
         copySb.AppendLine("}");
         copySb.AppendLine("$logDir = Join-Path $PSScriptRoot 'logs'");
-        copySb.AppendLine("if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }");
+        copySb.AppendLine("if (-not (Test-Path -LiteralPath $logDir)) { New-Item -ItemType Directory -Path $logDir | Out-Null }");
         copySb.AppendLine();
 
         foreach (var b in plan.Batches)
@@ -269,8 +269,8 @@ public sealed class ArchivePlannerService : IArchivePlannerService
             copySb.AppendLine("$safeSrc = if ($src.EndsWith('\\') -and -not $src.EndsWith(':\\')) { $src.TrimEnd('\\') } elseif ($src.EndsWith(':\\')) { $src + '.' } else { $src }");
             copySb.AppendLine("$safeDst = if ($dst.EndsWith('\\') -and -not $dst.EndsWith(':\\')) { $dst.TrimEnd('\\') } elseif ($dst.EndsWith(':\\')) { $dst + '.' } else { $dst }");
             copySb.AppendLine($"$log = Join-Path $logDir 'copy-{escapedCleanName}.log'");
-            copySb.AppendLine("if (Test-Path $src) {");
-            copySb.AppendLine("    if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }");
+            copySb.AppendLine("if (Test-Path -LiteralPath $src) {");
+            copySb.AppendLine("    if (-not (Test-Path -LiteralPath $dst)) { New-Item -ItemType Directory -Path $dst -Force | Out-Null }");
             copySb.AppendLine("    # Copy with data, attributes, timestamps. Safe retries, skip junctions, exclude older files (/XO), preserve directory timestamps (/DCOPY:DAT).");
             copySb.AppendLine("    robocopy $safeSrc $safeDst /E /COPY:DAT /DCOPY:DAT /XO /XJ /NP /R:2 /W:3 /LOG+:$log");
             copySb.AppendLine("    if ($LASTEXITCODE -ge 8) {");

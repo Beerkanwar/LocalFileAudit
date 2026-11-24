@@ -53,10 +53,14 @@ public interface IScanRepository
     Task<IReadOnlyList<ChatMessageRecord>> GetChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task DeleteChatMessagesAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
+    /// <summary>Returns cached analysis results only if they were produced with the given analysis version/fingerprint.</summary>
+    Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, string analysisVersion, CancellationToken cancellationToken = default);
     Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, CancellationToken cancellationToken = default);
+    Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, string analysisVersion, CancellationToken cancellationToken = default);
     Task DeleteAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task<StorageMetricsSummary?> GetScanMetricsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task SaveScanMetricsAsync(Guid scanRunId, StorageMetricsSummary summary, CancellationToken cancellationToken = default);
+    Task DeleteScanMetricsAsync(Guid scanRunId, CancellationToken cancellationToken = default);
     Task CheckpointTruncateAsync(CancellationToken cancellationToken = default);
     Task IncrementalVacuumAsync(int maxPages = 5000, CancellationToken cancellationToken = default);
     Task VacuumDatabaseAsync(CancellationToken cancellationToken = default);

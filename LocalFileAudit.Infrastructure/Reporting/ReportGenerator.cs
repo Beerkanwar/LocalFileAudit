@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -179,7 +180,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine($"- **Scan Run ID**: `{run.Id}`");
         sb.AppendLine($"- **Start Time (UTC)**: {run.StartTimeUtc:yyyy-MM-dd HH:mm:ss}");
         sb.AppendLine($"- **Completion Status**: **{run.Status}**");
-        sb.AppendLine($"- **Selected Roots**: `{run.SelectedDrives}`");
+        sb.AppendLine($"- **Selected Roots**: `{EscapeMarkdownCode(run.SelectedDrives)}`");
         sb.AppendLine($"- **Total Discovered Files**: {metrics.TotalFiles:N0}");
         sb.AppendLine($"- **Total Logical Size**: {metrics.TotalLogicalSizeBytes / (1024.0 * 1024.0 * 1024.0):F2} GB ({metrics.TotalLogicalSizeBytes:N0} bytes)");
         sb.AppendLine($"- **Errors Encountered**: {run.ErrorCount}");
@@ -190,7 +191,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("|---|---|---|---|");
         foreach (var ext in metrics.TopExtensions.Take(10))
         {
-            sb.AppendLine($"| `{ext.Extension}` | {ext.FileCount:N0} | {ext.TotalLogicalSizeBytes / (1024.0 * 1024.0):F1} | {ext.PercentageOfTotalSize:F1}% |");
+            sb.AppendLine($"| `{EscapeMarkdownCode(ext.Extension)}` | {ext.FileCount:N0} | {ext.TotalLogicalSizeBytes / (1024.0 * 1024.0):F1} | {ext.PercentageOfTotalSize:F1}% |");
         }
         sb.AppendLine();
 
@@ -199,7 +200,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("|---|---|---|---|");
         foreach (var file in metrics.LargestFiles.Take(10))
         {
-            sb.AppendLine($"| {EscapeMarkdown(file.FileName)} | `{file.Extension}` | {file.SizeBytes / (1024.0 * 1024.0):F1} | `{EscapeMarkdown(file.ParentPath)}` |");
+            sb.AppendLine($"| {EscapeMarkdown(file.FileName)} | `{EscapeMarkdownCode(file.Extension)}` | {file.SizeBytes / (1024.0 * 1024.0):F1} | `{EscapeMarkdownCode(file.ParentPath)}` |");
         }
         sb.AppendLine();
 
@@ -208,7 +209,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("|---|---|---|---|---|");
         foreach (var c in metrics.ReviewCandidates.Take(15))
         {
-            sb.AppendLine($"| **{c.Category}** | {EscapeMarkdown(c.FileName)} | {c.SizeBytes / (1024.0 * 1024.0):F1} | `{c.RuleId}` | {c.Explanation} |");
+            sb.AppendLine($"| **{c.Category}** | {EscapeMarkdown(c.FileName)} | {c.SizeBytes / (1024.0 * 1024.0):F1} | `{EscapeMarkdownCode(c.RuleId)}` | {EscapeMarkdown(c.Explanation)} |");
         }
         sb.AppendLine();
 
@@ -317,7 +318,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("Extension,FileCount,TotalSizeBytes,LogicalMB,PercentageOfStorage,PercentageOfFiles");
         foreach (var ext in list)
         {
-            sb.AppendLine($"{CsvSanitizer.EscapeCsv(ext.Extension)},{ext.FileCount},{ext.TotalLogicalSizeBytes},{(ext.TotalLogicalSizeBytes / (1024.0 * 1024.0)):F2},{ext.PercentageOfTotalSize:F2},{ext.PercentageOfTotalFiles:F2}");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"{CsvSanitizer.EscapeCsv(ext.Extension)},{ext.FileCount},{ext.TotalLogicalSizeBytes},{(ext.TotalLogicalSizeBytes / (1024.0 * 1024.0)):F2},{ext.PercentageOfTotalSize:F2},{ext.PercentageOfTotalFiles:F2}"));
         }
         return sb.ToString();
     }
@@ -328,7 +329,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("DirectoryPath,RecursiveSizeBytes,RecursiveLogicalMB,RecursiveFileCount,DirectSizeBytes,DirectLogicalMB,DirectFileCount");
         foreach (var dir in list)
         {
-            sb.AppendLine($"{CsvSanitizer.EscapeCsv(dir.DirectoryPath)},{dir.RecursiveSizeBytes},{(dir.RecursiveSizeBytes / (1024.0 * 1024.0)):F2},{dir.RecursiveFileCount},{dir.DirectSizeBytes},{(dir.DirectSizeBytes / (1024.0 * 1024.0)):F2},{dir.DirectFileCount}");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"{CsvSanitizer.EscapeCsv(dir.DirectoryPath)},{dir.RecursiveSizeBytes},{(dir.RecursiveSizeBytes / (1024.0 * 1024.0)):F2},{dir.RecursiveFileCount},{dir.DirectSizeBytes},{(dir.DirectSizeBytes / (1024.0 * 1024.0)):F2},{dir.DirectFileCount}"));
         }
         return sb.ToString();
     }
@@ -339,7 +340,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("FullPath,FileName,Extension,SizeBytes,LogicalMB,Category,RuleId,Explanation,LastWriteTimeUtc");
         foreach (var c in list)
         {
-            sb.AppendLine($"{CsvSanitizer.EscapeCsv(c.FullPath)},{CsvSanitizer.EscapeCsv(c.FileName)},{CsvSanitizer.EscapeCsv(c.Extension)},{c.SizeBytes},{(c.SizeBytes / (1024.0 * 1024.0)):F2},{c.Category},{CsvSanitizer.EscapeCsv(c.RuleId)},{CsvSanitizer.EscapeCsv(c.Explanation)},{c.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"{CsvSanitizer.EscapeCsv(c.FullPath)},{CsvSanitizer.EscapeCsv(c.FileName)},{CsvSanitizer.EscapeCsv(c.Extension)},{c.SizeBytes},{(c.SizeBytes / (1024.0 * 1024.0)):F2},{c.Category},{CsvSanitizer.EscapeCsv(c.RuleId)},{CsvSanitizer.EscapeCsv(c.Explanation)},{c.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss}"));
         }
         return sb.ToString();
     }
@@ -350,7 +351,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("Path,Operation,ErrorCode,ErrorMessage,TimestampUtc");
         foreach (var err in errors)
         {
-            sb.AppendLine($"{CsvSanitizer.EscapeCsv(err.Path)},{CsvSanitizer.EscapeCsv(err.Operation)},{CsvSanitizer.EscapeCsv(err.ErrorCode ?? "")},{CsvSanitizer.EscapeCsv(err.ErrorMessage)},{err.TimestampUtc:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"{CsvSanitizer.EscapeCsv(err.Path)},{CsvSanitizer.EscapeCsv(err.Operation)},{CsvSanitizer.EscapeCsv(err.ErrorCode ?? "")},{CsvSanitizer.EscapeCsv(err.ErrorMessage)},{err.TimestampUtc:yyyy-MM-dd HH:mm:ss}"));
         }
         return sb.ToString();
     }
@@ -361,7 +362,7 @@ public sealed class ReportGenerator : IReportGenerator
         sb.AppendLine("FullPath,FileName,Extension,SizeBytes,LogicalMB,CreationTimeUtc,LastWriteTimeUtc,Attributes");
         foreach (var f in files)
         {
-            sb.AppendLine($"{CsvSanitizer.EscapeCsv(f.FullPath)},{CsvSanitizer.EscapeCsv(f.FileName)},{CsvSanitizer.EscapeCsv(f.Extension)},{f.SizeBytes},{(f.SizeBytes / (1024.0 * 1024.0)):F2},{f.CreationTimeUtc:yyyy-MM-dd HH:mm:ss},{f.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss},{f.Attributes}");
+            sb.AppendLine(string.Create(CultureInfo.InvariantCulture, $"{CsvSanitizer.EscapeCsv(f.FullPath)},{CsvSanitizer.EscapeCsv(f.FileName)},{CsvSanitizer.EscapeCsv(f.Extension)},{f.SizeBytes},{(f.SizeBytes / (1024.0 * 1024.0)):F2},{f.CreationTimeUtc:yyyy-MM-dd HH:mm:ss},{f.LastWriteTimeUtc:yyyy-MM-dd HH:mm:ss},{f.Attributes}"));
         }
         return sb.ToString();
     }
@@ -377,7 +378,24 @@ public sealed class ReportGenerator : IReportGenerator
             .Replace("]", "\\]")
             .Replace("|", "\\|")
             .Replace("*", "\\*")
-            .Replace("_", "\\_");
+            .Replace("_", "\\_")
+            .Replace("!", "\\!")
+            .Replace("<", "\\<")
+            .Replace(">", "\\>");
+    }
+
+    /// <summary>
+    /// Escapes a value rendered inside a Markdown code span within a table cell.
+    /// Code spans do not process backslash escapes (so paths must not be backslash-doubled);
+    /// only the span delimiter and the GFM table pipe need neutralizing.
+    /// </summary>
+    internal static string EscapeMarkdownCode(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value
+            .Replace("\r\n", " ").Replace("\r", " ").Replace("\n", " ")
+            .Replace("`", "'")
+            .Replace("|", "\\|");
     }
 
     public async Task<IReadOnlyList<ReportFolderInfo>> GetGeneratedReportsAsync(CancellationToken cancellationToken = default)
@@ -530,7 +548,9 @@ public sealed class ReportGenerator : IReportGenerator
                         AfterId = lastId,
                         Limit = pageSize,
                         SortBy = "Id",
-                        SortDescending = false
+                        SortDescending = false,
+                        // Keyset streaming: a COUNT per page would make the export quadratic on large scans
+                        IncludeTotalCount = false
                     };
 
                     var page = await _repository.QueryFilesAsync(query, cancellationToken).ConfigureAwait(false);
@@ -559,7 +579,7 @@ public sealed class ReportGenerator : IReportGenerator
                         }
 
                         var ruleCategory = classification?.Category.ToString() ?? "Keep";
-                        var lastWriteTimeStr = file.LastWriteTimeUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? string.Empty;
+                        var lastWriteTimeStr = file.LastWriteTimeUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) ?? string.Empty;
                         var ageDays = file.LastWriteTimeUtc.HasValue
                             ? (now - file.LastWriteTimeUtc.Value).TotalDays.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)
                             : "0.0";

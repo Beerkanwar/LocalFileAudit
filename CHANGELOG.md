@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.19] - 2026-11-24
+
+### Audit Remediation: Data Correctness, Report Integrity & Hardening
+- **Analysis caches now honor Settings changes:** Persisted `ScanMetrics` summaries and `AnalysisResults` rows are keyed by an analysis fingerprint (`CandidateRuleEvaluator.GetAnalysisFingerprint`: rule-set version + large-file threshold + old-file age). Changing thresholds previously had no effect on completed scans. `InvalidateCacheAsync` now also removes the persisted `ScanMetrics` row (new `IScanRepository.DeleteScanMetricsAsync`), which it previously left behind and later resurrected.
+- **Culture-invariant CSV reports:** `ExtensionSummary`, `DirectorySummary`, `ReviewCandidates`, `ScanErrors`, `Inventory`, and full inventory exports now format decimals and timestamps with `InvariantCulture`; comma-decimal locales (e.g. de-DE) previously produced extra CSV columns.
+- **AI Markdown sanitization:** Table cells now HTML-encode `<`, `>`, `&` and escape `!`; review-plan and safety-warning lines in `AI-Review-Table.md` are sanitized; `SanitizeMarkdownBody` now strips link reference definitions, neutralizes reference-style images, and matches link schemes case-insensitively (including protocol-relative `//` and leading whitespace).
+- **Generated archive scripts:** `preview-archive.ps1` / `copy-archive.ps1` use `Test-Path -LiteralPath`, so paths containing `[` or `]` are no longer silently treated as missing.
+- **Resume de-duplication:** `InsertDirectoryBatchAsync` returns the persisted status on conflict, and the scanner enqueues each directory id at most once and never re-traverses directories already in a terminal state.
+- **Streaming export performance:** `FileInventoryQuery.IncludeTotalCount` lets keyset-paged consumers skip the per-page `COUNT(1)`; full inventory CSV export uses it (previously quadratic on large scans).
+- **Markdown summary escaping:** Paths, extensions, and rule IDs inside code spans are no longer backslash-doubled (code spans do not process escapes, so `Summary.md` previously displayed `C:\\Users\\...`); explanations and other cells now escape `!`, `<`, `>`.
+- **Minor:** Hash-reuse timestamp parsing uses invariant/UTC semantics; `StorageAnalysisEngine` builds its connection string with `SqliteConnectionStringBuilder`.
+- **Tests:** Added `AuditV1319RemediationTests` (12 regression tests).
+
 ## [1.3.18] - 2026-11-07
 
 ### Real-Time Progress Visibility & Long-Running Operation Indicators

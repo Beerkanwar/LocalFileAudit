@@ -18,6 +18,12 @@ public sealed class FileInventoryQuery
     public int Offset { get; set; } = 0;
     public int Limit { get; set; } = 100;
     public long? AfterId { get; set; }
+
+    /// <summary>
+    /// When false, the (potentially full-table) COUNT query is skipped and <see cref="PagedResult{T}.TotalCount"/>
+    /// reports only the rows returned. Streaming consumers paging with <see cref="AfterId"/> should disable it.
+    /// </summary>
+    public bool IncludeTotalCount { get; set; } = true;
 }
 
 /// <summary>

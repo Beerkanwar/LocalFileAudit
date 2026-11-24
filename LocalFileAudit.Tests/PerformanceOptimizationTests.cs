@@ -333,6 +333,8 @@ public class PerformanceOptimizationTests : IDisposable
             IsScanComplete = true,
             TotalFiles = 2,
             TotalLogicalSizeBytes = 5242880,
+            // Persisted summaries are only reused when computed with the current analysis thresholds
+            AnalysisFingerprint = LocalFileAudit.Core.Analysis.CandidateRuleEvaluator.GetAnalysisFingerprint(new AppConfiguration()),
             LargestDirectories = new List<DirectorySummary>
             {
                 new DirectorySummary

@@ -30,6 +30,23 @@ public static partial class CandidateRuleEvaluator
         MediaAndArchiveExtensions.Concat(TempAndBackupExtensions).Concat(InstallerExtensions),
         StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Rule-set version. Bump when classification rules change so persisted analysis caches are invalidated.
+    /// </summary>
+    public const string RuleSetVersion = "1.3";
+
+    /// <summary>
+    /// Returns a stable fingerprint of every configuration input that influences <see cref="Classify"/>.
+    /// Persisted analysis caches are only valid while this fingerprint is unchanged.
+    /// </summary>
+    public static string GetAnalysisFingerprint(AppConfiguration config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"{RuleSetVersion}|{config.Analysis.LargeFileThresholdBytes}|{config.Analysis.OldFileAgeDays}");
+    }
+
     public static CandidateClassification Classify(FileRecord file, AppConfiguration config)
     {
         ArgumentNullException.ThrowIfNull(file);

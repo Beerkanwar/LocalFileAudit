@@ -380,7 +380,7 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
 
         foreach (var r in response.Recommendations)
         {
-            sb.AppendLine($"| `{EscapeMarkdownTableCell(r.FileName)}` | **{EscapeMarkdownTableCell(r.SuggestedCategory)}** | {EscapeMarkdownTableCell(r.ConfidenceLevel)} | {EscapeMarkdownTableCell(r.Evidence)} | {EscapeMarkdownTableCell(r.Explanation)} | {EscapeMarkdownTableCell(r.RecommendedVerificationStep)} |");
+            sb.AppendLine($"| `{EscapeMarkdownCodeCell(r.FileName)}` | **{EscapeMarkdownTableCell(r.SuggestedCategory)}** | {EscapeMarkdownTableCell(r.ConfidenceLevel)} | {EscapeMarkdownTableCell(r.Evidence)} | {EscapeMarkdownTableCell(r.Explanation)} | {EscapeMarkdownTableCell(r.RecommendedVerificationStep)} |");
         }
 
         sb.AppendLine();
@@ -456,19 +456,19 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         mdSb.AppendLine("|---|---|---|---|---|---|---|");
         foreach (var r in response.Recommendations)
         {
-            mdSb.AppendLine($"| {r.CandidateId} | `{EscapeMarkdownTableCell(r.FileName)}` | **{EscapeMarkdownTableCell(r.SuggestedCategory)}** | {EscapeMarkdownTableCell(r.ConfidenceLevel)} | {EscapeMarkdownTableCell(r.Evidence)} | {EscapeMarkdownTableCell(r.Explanation)} | {EscapeMarkdownTableCell(r.RecommendedVerificationStep)} |");
+            mdSb.AppendLine($"| {r.CandidateId} | `{EscapeMarkdownCodeCell(r.FileName)}` | **{EscapeMarkdownTableCell(r.SuggestedCategory)}** | {EscapeMarkdownTableCell(r.ConfidenceLevel)} | {EscapeMarkdownTableCell(r.Evidence)} | {EscapeMarkdownTableCell(r.Explanation)} | {EscapeMarkdownTableCell(r.RecommendedVerificationStep)} |");
         }
         mdSb.AppendLine();
         mdSb.AppendLine("## Prioritized Review Plan");
         foreach (var p in response.PrioritizedReviewPlan)
         {
-            mdSb.AppendLine($"- {p}");
+            mdSb.AppendLine($"- {SanitizeMarkdownBody(p)}");
         }
         mdSb.AppendLine();
         mdSb.AppendLine("## Safety Warnings");
         foreach (var w in response.SafetyWarnings)
         {
-            mdSb.AppendLine($"- ⚠ {w}");
+            mdSb.AppendLine($"- ⚠ {SanitizeMarkdownBody(w)}");
         }
 
         await File.WriteAllTextAsync(mdTemp, mdSb.ToString(), Encoding.UTF8, cancellationToken).ConfigureAwait(false);
@@ -478,17 +478,41 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         return (csvPath, mdPath);
     }
 
-    private static string EscapeMarkdownTableCell(string? value)
+    /// <summary>
+    /// Escapes untrusted (AI-generated or filename-derived) text for a Markdown table cell.
+    /// Raw HTML is entity-encoded because Markdown renderers pass inline HTML (e.g. &lt;img src=...&gt;) through,
+    /// which would otherwise allow remote resource fetches when the report is previewed.
+    /// </summary>
+    public static string EscapeMarkdownTableCell(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";
         return value
             .Replace("\r\n", " ")
             .Replace("\n", " ")
             .Replace("\r", " ")
+            .Replace("&", "&amp;")
+            .Replace("<", "&lt;")
+            .Replace(">", "&gt;")
             .Replace("|", "\\|")
+            .Replace("!", "\\!")
             .Replace("[", "\\[")
             .Replace("]", "\\]")
             .Replace("`", "\\`");
+    }
+
+    /// <summary>
+    /// Escapes a value rendered inside a Markdown code span. Code spans never render HTML, so only
+    /// characters that terminate the span or the table cell need neutralizing.
+    /// </summary>
+    private static string EscapeMarkdownCodeCell(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        return value
+            .Replace("\r\n", " ")
+            .Replace("\n", " ")
+            .Replace("\r", " ")
+            .Replace("`", "'")
+            .Replace("|", "\\|");
     }
 
     public async Task<IReadOnlyList<AiReportRecord>> GetHistoryAsync(Guid? scanRunId = null, CancellationToken cancellationToken = default)
@@ -612,8 +636,16 @@ Output ONLY raw JSON starting with '{' and ending with '}'.
         if (string.IsNullOrWhiteSpace(text)) return string.Empty;
         var sanitized = text;
         sanitized = Regex.Replace(sanitized, @"<[^>]*>", " ");
+        // Link reference definitions ("[id]: https://...") back reference-style links and images; drop them entirely.
+        sanitized = Regex.Replace(sanitized, @"^[ \t]{0,3}\[[^\]\r\n]+\]:[^\r\n]*$", string.Empty, RegexOptions.Multiline);
         sanitized = Regex.Replace(sanitized, @"!\[(.*?)\]\((.*?)\)", "[$1]($2)");
-        sanitized = Regex.Replace(sanitized, @"\[(.*?)\]\((?:https?|file|data|javascript):[^\)]*\)", "$1");
+        // Any remaining image syntax (e.g. reference-style "![alt][id]") must never trigger an automatic fetch.
+        sanitized = sanitized.Replace("![", "[");
+        sanitized = Regex.Replace(
+            sanitized,
+            @"\[(.*?)\]\(\s*(?:(?:https?|file|data|javascript|vbscript|ftp):|//)[^\)]*\)",
+            "$1",
+            RegexOptions.IgnoreCase);
         return sanitized.Trim();
     }
 }

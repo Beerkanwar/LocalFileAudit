@@ -394,7 +394,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 VALUES (@ScanRunId, @Path, @ParentPath, @Status, @FilesProcessed, @LastCheckpointUtc, @LastError)
                 ON CONFLICT(ScanRunId, Path) DO UPDATE SET
                     LastCheckpointUtc = excluded.LastCheckpointUtc
-                RETURNING Id;
+                RETURNING Id, Status;
             ";
 
             var pScanRunId = cmd.Parameters.Add("@ScanRunId", SqliteType.Text);
@@ -415,10 +415,19 @@ public sealed class SqliteScanRepository : IScanRepository
                 pLastCheckpointUtc.Value = dir.LastCheckpointUtc.ToString("o");
                 pLastError.Value = (object?)dir.LastError ?? DBNull.Value;
 
-                var idScalar = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-                if (idScalar != null && idScalar != DBNull.Value)
+                // On conflict (directory re-enumerated during resume) the existing row is returned, so the caller
+                // learns the persisted status and can avoid re-traversing already completed subtrees.
+                await using (var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
                 {
-                    dir.Id = Convert.ToInt64(idScalar);
+                    if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        dir.Id = reader.GetInt64(0);
+                        if (!reader.IsDBNull(1) &&
+                            Enum.TryParse<DirectoryState>(reader.GetString(1), ignoreCase: true, out var persistedState))
+                        {
+                            dir.Status = persistedState;
+                        }
+                    }
                 }
             }
 
@@ -744,9 +753,10 @@ public sealed class SqliteScanRepository : IScanRepository
 
         var whereClause = whereConditions.Count > 0 ? "WHERE " + string.Join(" AND ", whereConditions) : "";
 
-        long totalCount;
-        await using (var countCmd = connection.CreateCommand())
+        long totalCount = -1;
+        if (query.IncludeTotalCount)
         {
+            await using var countCmd = connection.CreateCommand();
             countCmd.CommandText = $"SELECT COUNT(1) FROM Files {whereClause};";
             foreach (var p in parameters)
             {
@@ -799,7 +809,7 @@ public sealed class SqliteScanRepository : IScanRepository
         return new PagedResult<FileRecord>
         {
             Items = items,
-            TotalCount = totalCount,
+            TotalCount = totalCount >= 0 ? totalCount : items.Count,
             PageNumber = isKeysetPaging ? 1 : ((offset / pageSize) + 1),
             PageSize = pageSize
         };
@@ -1040,9 +1050,14 @@ public sealed class SqliteScanRepository : IScanRepository
             if (!reader.IsDBNull(1))
             {
                 var timeStr = reader.GetString(1);
-                if (DateTime.TryParse(timeStr, out var parsedUtc))
+                if (DateTime.TryParse(timeStr, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                        out var parsedUtc))
                 {
-                    if (Math.Abs((parsedUtc.ToUniversalTime() - lastWriteTimeUtc.Value.ToUniversalTime()).TotalSeconds) <= 2)
+                    var expectedUtc = lastWriteTimeUtc.Value.Kind == DateTimeKind.Local
+                        ? lastWriteTimeUtc.Value.ToUniversalTime()
+                        : DateTime.SpecifyKind(lastWriteTimeUtc.Value, DateTimeKind.Utc);
+                    if (Math.Abs((parsedUtc - expectedUtc).TotalSeconds) <= 2)
                     {
                         return hash;
                     }
@@ -1345,21 +1360,35 @@ public sealed class SqliteScanRepository : IScanRepository
         return value.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
     }
 
-    public async Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+        => GetCachedAnalysisResultsCoreAsync(scanRunId, null, cancellationToken);
+
+    public Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsAsync(Guid scanRunId, string analysisVersion, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(analysisVersion);
+        return GetCachedAnalysisResultsCoreAsync(scanRunId, analysisVersion, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<CandidateClassification>> GetCachedAnalysisResultsCoreAsync(Guid scanRunId, string? analysisVersion, CancellationToken cancellationToken)
     {
         var list = new List<CandidateClassification>();
         var seenFileIds = new HashSet<long>();
         await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = connection.CreateCommand();
-        cmd.CommandText = @"
+        var versionClause = analysisVersion != null ? "AND ar.AnalysisVersion = @AnalysisVersion" : string.Empty;
+        cmd.CommandText = $@"
             SELECT ar.FileId, ar.Category, ar.RuleId, ar.Priority, ar.Confidence, ar.Explanation,
                    f.FullPath, f.FileName, f.Extension, f.SizeBytes, f.LastWriteTimeUtc
             FROM AnalysisResults ar
             LEFT JOIN Files f ON f.Id = ar.FileId
-            WHERE ar.ScanRunId = @ScanRunId
+            WHERE ar.ScanRunId = @ScanRunId {versionClause}
             ORDER BY ar.Priority ASC, f.SizeBytes DESC;
         ";
         cmd.Parameters.AddWithValue("@ScanRunId", scanRunId.ToString());
+        if (analysisVersion != null)
+        {
+            cmd.Parameters.AddWithValue("@AnalysisVersion", analysisVersion);
+        }
 
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -1403,9 +1432,13 @@ public sealed class SqliteScanRepository : IScanRepository
         return list;
     }
 
-    public async Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, CancellationToken cancellationToken = default)
+    public Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, CancellationToken cancellationToken = default)
+        => SaveAnalysisResultsAsync(scanRunId, results, LocalFileAudit.Core.Analysis.CandidateRuleEvaluator.RuleSetVersion, cancellationToken);
+
+    public async Task SaveAnalysisResultsAsync(Guid scanRunId, IEnumerable<CandidateClassification> results, string analysisVersion, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(results);
+        ArgumentException.ThrowIfNullOrWhiteSpace(analysisVersion);
         await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -1446,7 +1479,7 @@ public sealed class SqliteScanRepository : IScanRepository
                 pPrio.Value = c.Priority;
                 pConf.Value = c.Confidence;
                 pExp.Value = c.Explanation;
-                pVer.Value = "1.3";
+                pVer.Value = analysisVersion;
                 await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -1515,6 +1548,23 @@ public sealed class SqliteScanRepository : IScanRepository
             cmd.Parameters.AddWithValue("@Id", scanRunId.ToString());
             cmd.Parameters.AddWithValue("@Json", json);
             cmd.Parameters.AddWithValue("@CalculatedAt", DateTime.UtcNow.ToString("o"));
+            await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task DeleteScanMetricsAsync(Guid scanRunId, CancellationToken cancellationToken = default)
+    {
+        await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+            await using var cmd = connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM ScanMetrics WHERE ScanRunId = @Id;";
+            cmd.Parameters.AddWithValue("@Id", scanRunId.ToString());
             await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         finally

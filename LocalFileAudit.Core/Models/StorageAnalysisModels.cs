@@ -64,6 +64,12 @@ public sealed class StorageMetricsSummary
     public double VolumeUsagePercentage => VolumeCapacityBytes > 0 ? (double)VolumeUsedBytes / VolumeCapacityBytes * 100.0 : 0.0;
     public string SelectedDrives { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Fingerprint of the analysis thresholds used to classify candidates for this summary.
+    /// Cached summaries whose fingerprint differs from the current configuration are stale and must be recomputed.
+    /// </summary>
+    public string? AnalysisFingerprint { get; set; }
+
     public List<ExtensionSummary> TopExtensions { get; set; } = new();
     public List<FileRecord> LargestFiles { get; set; } = new();
     public List<DirectorySummary> LargestDirectories { get; set; } = new();

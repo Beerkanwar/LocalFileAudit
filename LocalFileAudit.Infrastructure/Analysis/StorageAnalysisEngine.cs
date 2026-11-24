@@ -34,7 +34,14 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
     private async Task<SqliteConnection> OpenConnectionAsync(CancellationToken cancellationToken)
     {
-        var conn = new SqliteConnection($"Data Source={_initializer.DatabasePath};Mode=ReadOnly;Cache=Private;Default Timeout=30;");
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = _initializer.DatabasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Cache = SqliteCacheMode.Private,
+            DefaultTimeout = 30
+        }.ToString();
+        var conn = new SqliteConnection(connectionString);
         await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "PRAGMA busy_timeout = 30000;";
@@ -54,6 +61,17 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to delete AnalysisResults for scan {ScanRunId}", scanRunId.Value);
+            }
+
+            // The persisted metrics summary embeds review candidates too; without removing it,
+            // the next AnalyzeScanAsync call would silently resurrect the stale summary from disk.
+            try
+            {
+                await _repository.DeleteScanMetricsAsync(scanRunId.Value, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to delete ScanMetrics for scan {ScanRunId}", scanRunId.Value);
             }
         }
         else
@@ -79,7 +97,11 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         var run = await _repository.GetScanRunAsync(scanRunId, cancellationToken).ConfigureAwait(false)
             ?? throw new ArgumentException($"Scan run {scanRunId} not found.", nameof(scanRunId));
 
-        if (run.Status == ScanState.Completed && _summaryCache.TryGetValue(scanRunId, out var cachedSummary) && cachedSummary.IsScanComplete)
+        // Cached summaries are only valid for the analysis thresholds they were computed with.
+        var fingerprint = CandidateRuleEvaluator.GetAnalysisFingerprint(_configurationService.Current);
+
+        if (run.Status == ScanState.Completed && _summaryCache.TryGetValue(scanRunId, out var cachedSummary) &&
+            cachedSummary.IsScanComplete && cachedSummary.AnalysisFingerprint == fingerprint)
         {
             return cachedSummary;
         }
@@ -88,7 +110,7 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         if (run.Status == ScanState.Completed)
         {
             var dbMetrics = await _repository.GetScanMetricsAsync(scanRunId, cancellationToken).ConfigureAwait(false);
-            if (dbMetrics != null && dbMetrics.IsScanComplete)
+            if (dbMetrics != null && dbMetrics.IsScanComplete && dbMetrics.AnalysisFingerprint == fingerprint)
             {
                 _summaryCache[scanRunId] = dbMetrics;
                 return dbMetrics;
@@ -160,6 +182,7 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
             ErrorCount = run.ErrorCount,
             IsScanComplete = run.Status == ScanState.Completed,
             SelectedDrives = run.SelectedDrives ?? string.Empty,
+            AnalysisFingerprint = fingerprint,
             TopExtensions = topExtensions.ToList(),
             LargestFiles = largestFiles.ToList(),
             LargestDirectories = largestDirectories.ToList(),
@@ -458,9 +481,12 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         // Only serve and persist the DB-backed analysis cache for completed scans.
         // An in-progress scan can have incomplete data; returning stale cached results would
         // suppress new candidates added since the cache was populated.
+        // Cached rows are keyed by the analysis fingerprint so threshold changes in Settings are honored.
+        var config = _configurationService.Current;
+        var fingerprint = CandidateRuleEvaluator.GetAnalysisFingerprint(config);
         if (isComplete)
         {
-            var cached = await _repository.GetCachedAnalysisResultsAsync(scanRunId, cancellationToken).ConfigureAwait(false);
+            var cached = await _repository.GetCachedAnalysisResultsAsync(scanRunId, fingerprint, cancellationToken).ConfigureAwait(false);
             if (cached.Count > 0)
             {
                 return cached;
@@ -469,7 +495,6 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
         // 2. Cache miss or in-progress scan: evaluate rules from Files
         var candidates = new List<CandidateClassification>();
-        var config = _configurationService.Current;
         var extensions = CandidateRuleEvaluator.AllCandidateExtensions.Select(e => e.ToLowerInvariant()).Distinct().ToList();
         var paramPlaceholders = new List<string>(extensions.Count);
         for (int i = 0; i < extensions.Count; i++)
@@ -509,7 +534,7 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
 
                 var classification = CandidateRuleEvaluator.Classify(file, config);
 
-                if (classification.Category != CandidateCategory.KeepOnLaptop && 
+                if (classification.Category != CandidateCategory.KeepOnLaptop &&
                     classification.Category != CandidateCategory.Unknown &&
                     classification.Category != CandidateCategory.ProtectedSystem)
                 {
@@ -525,7 +550,7 @@ public sealed class StorageAnalysisEngine : IStorageAnalysisEngine
         {
             try
             {
-                await _repository.SaveAnalysisResultsAsync(scanRunId, sorted, cancellationToken).ConfigureAwait(false);
+                await _repository.SaveAnalysisResultsAsync(scanRunId, sorted, fingerprint, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

@@ -281,7 +281,17 @@ public sealed class FilesystemScanner : IScanEngine, IDisposable
         long dirsCompleted = run.DirectoriesCompleted;
         long errorCount = run.ErrorCount;
 
-        var directoryQueue = new ConcurrentQueue<DirectoryRecord>(initialDirs);
+        // Track every directory id handed to the queue so a resumed scan never traverses the same directory twice
+        // (an interrupted parent re-enumerates children that are already pending in initialDirs or already completed).
+        var enqueuedDirectoryIds = new ConcurrentDictionary<long, byte>();
+        var directoryQueue = new ConcurrentQueue<DirectoryRecord>();
+        foreach (var initialDir in initialDirs)
+        {
+            if (initialDir.Id <= 0 || enqueuedDirectoryIds.TryAdd(initialDir.Id, 0))
+            {
+                directoryQueue.Enqueue(initialDir);
+            }
+        }
         var persistenceChannel = Channel.CreateBounded<PersistenceItem>(new BoundedChannelOptions(2000)
         {
             FullMode = BoundedChannelFullMode.Wait,
@@ -411,6 +421,7 @@ public sealed class FilesystemScanner : IScanEngine, IDisposable
                             target,
                             persistenceChannel.Writer,
                             directoryQueue,
+                            enqueuedDirectoryIds,
                             () => Interlocked.Increment(ref filesDiscovered),
                             () => Interlocked.Increment(ref errorCount),
                             visitedDirectories,
@@ -582,6 +593,7 @@ public sealed class FilesystemScanner : IScanEngine, IDisposable
         ScanTarget target,
         ChannelWriter<PersistenceItem> channelWriter,
         ConcurrentQueue<DirectoryRecord> queue,
+        ConcurrentDictionary<long, byte> enqueuedDirectoryIds,
         Action onFileDiscovered,
         Action onErrorEncountered,
         ConcurrentDictionary<string, byte> visitedDirectories,
@@ -744,7 +756,16 @@ public sealed class FilesystemScanner : IScanEngine, IDisposable
             await _repository.InsertDirectoryBatchAsync(newSubdirs, cancellationToken).ConfigureAwait(false);
             foreach (var sub in newSubdirs)
             {
-                queue.Enqueue(sub);
+                // Rows that already reached a terminal state in a previous session keep their results.
+                if (sub.Status is not (DirectoryState.Pending or DirectoryState.InProgress))
+                {
+                    continue;
+                }
+
+                if (sub.Id <= 0 || enqueuedDirectoryIds.TryAdd(sub.Id, 0))
+                {
+                    queue.Enqueue(sub);
+                }
             }
         }
 
